@@ -1,0 +1,26 @@
+name = "outbound-intent-engine"
+main = "src/worker/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "e406ada6b728029380a6465d03932cb8"
+
+# KV Namespace for identity and personalization
+kv_namespaces = [
+  { binding = "IDENTITY_STORE", id = "84ed00a75f6f44adb62d4d7bbec149ae", preview_id = "bc6e5739bf6e40eca5e937af12c78b7c" },
+  { binding = "PERSONALIZATION", id = "ff943d471f2f439c9199c9ea78e1426c", preview_id = "b653bcb3e6f04feda227b6220b40ac49" }
+]
+
+# Environment variables
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+[env.staging]
+vars = { ENVIRONMENT = "staging" }
+
+# Secrets (set via: wrangler secret put SECRET_NAME)
+# - BIGQUERY_PROJECT_ID
+# - BIGQUERY_DATASET
+# - BIGQUERY_CREDENTIALS (JSON service account key)
+# - EVENT_SIGNING_SECRET
+# - ALLOWED_ORIGINS
+

@@ -1,0 +1,50 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - develop
+      - staging
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    name: Deploy to Staging Environment
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build tracking pixel
+        run: npm run build:pixel
+
+      - name: Deploy to Cloudflare Workers (Staging)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env staging
+        env:
+          BIGQUERY_PROJECT_ID: ${{ secrets.BIGQUERY_PROJECT_ID_STAGING }}
+          BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET_STAGING }}
+          BIGQUERY_CREDENTIALS: ${{ secrets.BIGQUERY_CREDENTIALS_STAGING }}
+          EVENT_SIGNING_SECRET: ${{ secrets.EVENT_SIGNING_SECRET }}
+          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS_STAGING }}
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Staging deployment successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Staging" >> $GITHUB_STEP_SUMMARY
+          echo "**Worker:** https://staging.outbound-intent-engine.workers.dev" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+

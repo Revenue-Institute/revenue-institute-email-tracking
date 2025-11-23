@@ -1,0 +1,42 @@
+{
+  "name": "outbound-intent-engine",
+  "version": "1.0.0",
+  "description": "Outbound Intent Engine - Track visitor behavior from cold outreach",
+  "type": "module",
+  "scripts": {
+    "dev:pixel": "vite",
+    "build:pixel": "vite build",
+    "dev:worker": "wrangler dev src/worker/index.ts",
+    "deploy:worker": "wrangler deploy",
+    "deploy:pixel": "wrangler pages deploy dist",
+    "create-campaign": "tsx scripts/create-campaign.ts",
+    "sync-identities": "tsx scripts/sync-identities-kv.ts",
+    "sync-bigquery": "tsx scripts/sync-identities-bigquery.ts",
+    "test": "vitest",
+    "lint": "eslint . --ext .ts,.js"
+  },
+  "keywords": [
+    "tracking",
+    "analytics",
+    "outbound",
+    "intent",
+    "cloudflare"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "@types/node": "^20.10.0",
+    "csv-parse": "^5.5.3",
+    "eslint": "^8.55.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.7",
+    "vitest": "^1.0.4",
+    "wrangler": "^3.22.1"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^7.3.0"
+  }
+}
+

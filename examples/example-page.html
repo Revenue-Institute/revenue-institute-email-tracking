@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo Page - Outbound Intent Engine</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: #f5f5f5;
+    }
+    
+    .hero {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 80px 20px;
+      text-align: center;
+    }
+    
+    .hero h1 {
+      font-size: 3rem;
+      margin-bottom: 20px;
+    }
+    
+    .hero p {
+      font-size: 1.25rem;
+      opacity: 0.9;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    
+    .personalized-section {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      margin-bottom: 30px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .personalized-section h2 {
+      margin-bottom: 15px;
+      color: #667eea;
+    }
+    
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 30px;
+      margin-top: 40px;
+    }
+    
+    .feature-card {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      transition: transform 0.3s;
+    }
+    
+    .feature-card:hover {
+      transform: translateY(-5px);
+    }
+    
+    .feature-card h3 {
+      color: #667eea;
+      margin-bottom: 15px;
+    }
+    
+    .cta-button {
+      display: inline-block;
+      background: #667eea;
+      color: white;
+      padding: 15px 40px;
+      border-radius: 5px;
+      text-decoration: none;
+      font-weight: 600;
+      margin: 20px 10px;
+      transition: background 0.3s;
+    }
+    
+    .cta-button:hover {
+      background: #5568d3;
+    }
+    
+    .cta-button.secondary {
+      background: #764ba2;
+    }
+    
+    .cta-button.secondary:hover {
+      background: #653a8a;
+    }
+    
+    /* High-intent visitor styles */
+    body.engagement-hot .personalized-section {
+      border-left: 5px solid #ff6b6b;
+    }
+    
+    body.engagement-burning .personalized-section {
+      border-left: 5px solid #ff0000;
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 2px 10px rgba(255,0,0,0.2); }
+      50% { box-shadow: 0 2px 20px rgba(255,0,0,0.4); }
+    }
+    
+    [data-show-if] {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- Hero Section -->
+  <div class="hero">
+    <h1>
+      Welcome<span data-personalize="firstName" style="display: none;">, <span></span></span>!
+    </h1>
+    <p>Transform your outbound sales with intelligent intent tracking</p>
+  </div>
+
+  <div class="container">
+    <!-- Personalized Welcome -->
+    <div class="personalized-section" data-show-if="personalized">
+      <h2>Great to see you back!</h2>
+      <p>
+        Hi <strong data-personalize="firstName">there</strong> from 
+        <strong data-personalize="company">your company</strong>! 
+        We noticed you've been exploring our platform. Here's what we think you'll love:
+      </p>
+    </div>
+
+    <!-- High-Intent Message -->
+    <div class="personalized-section" data-show-if="viewedPricing">
+      <h2>🔥 Ready to get started?</h2>
+      <p>
+        We saw you checked out our pricing. Let's get you set up with a demo 
+        tailored specifically for <span data-personalize="company">your team</span>.
+      </p>
+      <a href="/demo" class="cta-button">Book Your Demo →</a>
+    </div>
+
+    <!-- Return Visitor Message -->
+    <div class="personalized-section" data-show-if="intentScore>50">
+      <h2>👋 Welcome back!</h2>
+      <p>
+        Your engagement score: <strong data-personalize="intentScore">0</strong>/100
+      </p>
+      <p>
+        Level: <strong data-personalize="engagementLevel">cold</strong>
+      </p>
+    </div>
+
+    <!-- Features -->
+    <div class="features">
+      <div class="feature-card">
+        <h3>🎯 Intent Tracking</h3>
+        <p>
+          Identify hot leads based on real behavioral signals. Know exactly 
+          when someone is ready to buy.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>📊 Real-Time Scoring</h3>
+        <p>
+          Automatic lead scoring based on pageviews, engagement, and high-intent 
+          actions like viewing pricing.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>🔗 Attribution</h3>
+        <p>
+          Full attribution from cold email click through conversion. 
+          Know which campaigns drive results.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>⚡ Lightning Fast</h3>
+        <p>
+          Edge-based tracking with zero impact on page speed. 
+          Sub-10ms personalization lookups.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>🎨 Personalization</h3>
+        <p>
+          Dynamic content based on visitor identity and engagement level. 
+          Show the right message at the right time.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <h3>📈 BigQuery Analytics</h3>
+        <p>
+          All data stored in BigQuery for unlimited analysis, modeling, 
+          and AI-powered insights.
+        </p>
+      </div>
+    </div>
+
+    <!-- CTA Section -->
+    <div style="text-align: center; margin: 60px 0;">
+      <h2 style="margin-bottom: 20px;">Ready to transform your outbound?</h2>
+      <a href="/pricing" class="cta-button">View Pricing</a>
+      <a href="/demo" class="cta-button secondary">Get a Demo</a>
+    </div>
+  </div>
+
+  <!-- Tracking Pixel -->
+  <script>
+    // Configuration
+    window.oieConfig = {
+      endpoint: 'https://your-worker.workers.dev/track',
+      debug: true  // Enable console logging
+    };
+  </script>
+  <script src="/dist/pixel.js"></script>
+
+  <!-- Personalization (optional) -->
+  <script>
+    // Wait for tracker to initialize
+    window.addEventListener('DOMContentLoaded', async () => {
+      if (window.oieTracker && window.oieTracker.visitorId) {
+        // Initialize personalizer
+        const personalizer = new window.Personalizer(
+          'https://your-worker.workers.dev/personalize',
+          window.oieTracker.visitorId
+        );
+        
+        // Apply personalization
+        await personalizer.personalize();
+        
+        // Listen for personalization event
+        window.addEventListener('personalized', (e) => {
+          console.log('Page personalized:', e.detail);
+          
+          // Custom logic based on personalization
+          if (e.detail.intentScore > 70) {
+            console.log('🔥 High-intent visitor!');
+            // Show special offer, trigger chat, etc.
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>
+
