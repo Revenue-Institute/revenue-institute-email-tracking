@@ -288,6 +288,7 @@ function base64urlEncode(data: string): string {
 
 /**
  * Handle identity lookup (resolve short ID to full profile)
+ * Uses lazy loading: KV first, then BigQuery, then cache to KV
  */
 async function handleIdentityLookup(request: Request, env: Env): Promise<Response> {
   try {
@@ -298,11 +299,23 @@ async function handleIdentityLookup(request: Request, env: Env): Promise<Respons
       return new Response('Missing identity parameter', { status: 400 });
     }
 
-    // Lookup in KV store
-    const identity = await env.IDENTITY_STORE.get(identityId, 'json');
+    // Try KV first (fast path)
+    let identity = await env.IDENTITY_STORE.get(identityId, 'json');
 
     if (!identity) {
-      return new Response('Identity not found', { status: 404 });
+      // Not in KV, look up in BigQuery
+      console.log('Identity not in KV, checking BigQuery...', identityId);
+      identity = await lookupIdentityInBigQuery(identityId, env);
+      
+      if (identity) {
+        // Cache in KV for future requests (90 days)
+        await env.IDENTITY_STORE.put(identityId, JSON.stringify(identity), {
+          expirationTtl: 90 * 24 * 60 * 60 // 90 days
+        });
+        console.log('Cached identity in KV:', identityId);
+      } else {
+        return new Response('Identity not found', { status: 404 });
+      }
     }
 
     return new Response(JSON.stringify(identity), {
@@ -318,7 +331,81 @@ async function handleIdentityLookup(request: Request, env: Env): Promise<Respons
 }
 
 /**
+ * Lookup identity in BigQuery identity_map table
+ */
+async function lookupIdentityInBigQuery(shortId: string, env: Env): Promise<any> {
+  try {
+    const token = await createBigQueryToken(JSON.parse(env.BIGQUERY_CREDENTIALS));
+    const projectId = env.BIGQUERY_PROJECT_ID;
+    const dataset = env.BIGQUERY_DATASET;
+    
+    const query = `
+      SELECT 
+        shortId,
+        email,
+        firstName,
+        lastName,
+        company,
+        campaignId,
+        campaignName
+      FROM \`${projectId}.${dataset}.identity_map\`
+      WHERE shortId = @shortId
+      LIMIT 1
+    `;
+    
+    const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query,
+        useLegacySql: false,
+        parameterMode: 'NAMED',
+        queryParameters: [
+          {
+            name: 'shortId',
+            parameterType: { type: 'STRING' },
+            parameterValue: { value: shortId }
+          }
+        ]
+      })
+    });
+    
+    if (!response.ok) {
+      console.error('BigQuery lookup failed:', await response.text());
+      return null;
+    }
+    
+    const result = await response.json();
+    
+    if (result.rows && result.rows.length > 0) {
+      const row = result.rows[0].f;
+      return {
+        shortId: row[0].v,
+        email: row[1].v,
+        firstName: row[2].v,
+        lastName: row[3].v,
+        company: row[4].v,
+        campaignId: row[5].v,
+        campaignName: row[6].v
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('BigQuery lookup error:', error);
+    return null;
+  }
+}
+
+/**
  * Handle personalization data fetch
+ * First visit: Uses identity_map (name, company from leads table)
+ * Return visits: Uses lead_profiles (intent scores, behavior)
  */
 async function handlePersonalization(request: Request, env: Env): Promise<Response> {
   try {
@@ -329,16 +416,37 @@ async function handlePersonalization(request: Request, env: Env): Promise<Respon
       return new Response('Missing visitor ID', { status: 400 });
     }
 
-    // Lookup personalization data
-    const personalization = await env.PERSONALIZATION.get(visitorId, 'json');
+    // Try KV first for computed personalization (return visitors with scores)
+    let personalization = await env.PERSONALIZATION.get(visitorId, 'json');
 
     if (!personalization) {
-      return new Response(JSON.stringify({ personalized: false }), {
-        headers: { 
-          'Content-Type': 'application/json',
-          ...getCORSHeaders(request, env)
-        }
-      });
+      // Not in KV, check if this is a known lead from identity_map
+      const identity = await lookupIdentityInBigQuery(visitorId, env);
+      
+      if (identity) {
+        // First visit - use data from leads table via identity_map
+        personalization = {
+          personalized: true,
+          firstName: identity.firstName,
+          lastName: identity.lastName,
+          company: identity.company,
+          email: identity.email,
+          // No behavior data yet
+          intentScore: 0,
+          engagementLevel: 'new',
+          viewedPricing: false,
+          submittedForm: false,
+          isFirstVisit: true
+        };
+      } else {
+        // Unknown visitor
+        return new Response(JSON.stringify({ personalized: false }), {
+          headers: { 
+            'Content-Type': 'application/json',
+            ...getCORSHeaders(request, env)
+          }
+        });
+      }
     }
 
     return new Response(JSON.stringify({
@@ -347,7 +455,7 @@ async function handlePersonalization(request: Request, env: Env): Promise<Respon
     }), {
       headers: { 
         'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=300',
+        'Cache-Control': 'public, max-age=60', // Short cache for first visits
         ...getCORSHeaders(request, env)
       }
     });

@@ -10,6 +10,7 @@
     "deploy:worker": "wrangler deploy",
     "deploy:pixel": "wrangler pages deploy dist",
     "create-campaign": "tsx scripts/create-campaign.ts",
+    "assign-tracking-ids": "tsx scripts/assign-tracking-ids.ts",
     "sync-identities": "tsx scripts/sync-identities-kv.ts",
     "sync-bigquery": "tsx scripts/sync-identities-bigquery.ts",
     "test": "vitest",
