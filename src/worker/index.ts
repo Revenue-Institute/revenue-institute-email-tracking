@@ -6,6 +6,7 @@
 export interface Env {
   IDENTITY_STORE: KVNamespace;
   PERSONALIZATION: KVNamespace;
+  ASSETS: Fetcher;
   BIGQUERY_PROJECT_ID: string;
   BIGQUERY_DATASET: string;
   BIGQUERY_CREDENTIALS: string;
@@ -61,6 +62,24 @@ export default {
       return new Response(JSON.stringify({ status: 'ok', timestamp: Date.now() }), {
         headers: { 'Content-Type': 'application/json' }
       });
+    }
+
+    if (url.pathname === '/pixel.js') {
+      // Serve the tracking pixel from static assets
+      const assetResponse = await env.ASSETS.fetch(new Request('https://fake-host/pixel.iife.js'));
+      
+      if (assetResponse.ok) {
+        return new Response(assetResponse.body, {
+          headers: { 
+            'Content-Type': 'application/javascript',
+            'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+            'Access-Control-Allow-Origin': '*', // Allow cross-origin
+            'X-Content-Type-Options': 'nosniff'
+          }
+        });
+      }
+      
+      return new Response('Pixel not found', { status: 404 });
     }
 
     return new Response('Not Found', { status: 404 });
