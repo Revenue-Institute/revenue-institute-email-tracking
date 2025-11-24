@@ -71,9 +71,11 @@ export default {
       return new Response(pixelCode, {
         headers: { 
           'Content-Type': 'application/javascript',
-          'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+          'Cache-Control': 'public, max-age=300, must-revalidate', // 5 min cache with revalidation
           'Access-Control-Allow-Origin': '*', // Allow cross-origin
-          'X-Content-Type-Options': 'nosniff'
+          'X-Content-Type-Options': 'nosniff',
+          'ETag': `"pixel-v${Date.now()}"`, // Force cache validation
+          'Vary': 'Accept-Encoding'
         }
       });
     }

@@ -34,7 +34,7 @@ USING (
       MAX(CAST(JSON_EXTRACT_SCALAR(data, '$.activeTime') AS INT64)) as activeTime,
       
       -- High-intent pages (array of URLs containing key paths)
-      ARRAY_AGG(DISTINCT url) FILTER (WHERE url LIKE '%/pricing%' OR url LIKE '%/demo%' OR url LIKE '%/contact%') as highIntentPages,
+      ARRAY_AGG(DISTINCT CASE WHEN url LIKE '%/pricing%' OR url LIKE '%/demo%' OR url LIKE '%/contact%' THEN url END IGNORE NULLS) as highIntentPages,
       
       -- Entry/Exit
       ARRAY_AGG(url ORDER BY timestamp LIMIT 1)[OFFSET(0)] as entryUrl,
