@@ -424,25 +424,44 @@ async function handleIdentityLookup(request: Request, env: Env): Promise<Respons
 }
 
 /**
- * Lookup identity in BigQuery identity_map table
+ * Lookup identity in BigQuery - JOIN with leads table for full data
  */
 async function lookupIdentityInBigQuery(shortId: string, env: Env): Promise<any> {
+  console.log('📊 Looking up identity in BigQuery:', shortId);
   try {
+    console.log('🔑 Creating BigQuery token...');
     const token = await createBigQueryToken(JSON.parse(env.BIGQUERY_CREDENTIALS));
+    console.log('✅ Token created');
     const projectId = env.BIGQUERY_PROJECT_ID;
     const dataset = env.BIGQUERY_DATASET;
+    console.log('📋 Project:', projectId, 'Dataset:', dataset);
     
     const query = `
       SELECT 
-        shortId,
-        email,
-        firstName,
-        lastName,
-        company,
-        campaignId,
-        campaignName
-      FROM \`${projectId}.${dataset}.identity_map\`
-      WHERE shortId = @shortId
+        im.shortId,
+        im.email,
+        im.firstName,
+        im.lastName,
+        im.company,
+        im.campaignId,
+        im.campaignName,
+        -- Full lead data from leads table
+        l.person_name,
+        l.phone,
+        l.linkedin,
+        l.company_name,
+        l.company_description,
+        l.company_size,
+        l.revenue,
+        l.industry,
+        l.department,
+        l.company_website,
+        l.company_linkedin,
+        l.job_title,
+        l.seniority
+      FROM \`${projectId}.${dataset}.identity_map\` im
+      LEFT JOIN \`${projectId}.${dataset}.leads\` l ON im.email = l.email
+      WHERE im.shortId = @shortId
       LIMIT 1
     `;
     
@@ -478,13 +497,32 @@ async function lookupIdentityInBigQuery(shortId: string, env: Env): Promise<any>
     if (result.rows && result.rows.length > 0) {
       const row = result.rows[0].f;
       return {
+        // Identity data
         shortId: row[0].v,
         email: row[1].v,
-        firstName: row[2].v,
+        firstName: row[2].v || row[7].v, // firstName from identity_map or person_name from leads
         lastName: row[3].v,
-        company: row[4].v,
+        company: row[4].v || row[10].v, // company from identity_map or company_name from leads
         campaignId: row[5].v,
-        campaignName: row[6].v
+        campaignName: row[6].v,
+        
+        // Full lead data
+        personName: row[7].v,
+        phone: row[8].v,
+        linkedin: row[9].v,
+        companyName: row[10].v,
+        companyDescription: row[11].v,
+        companySize: row[12].v,
+        revenue: row[13].v,
+        industry: row[14].v,
+        department: row[15].v,
+        companyWebsite: row[16].v,
+        companyLinkedin: row[17].v,
+        jobTitle: row[18].v,
+        seniority: row[19].v,
+        
+        // Computed domain
+        domain: row[16].v || (row[1].v ? row[1].v.split('@')[1] : null)
       };
     }
     
@@ -509,27 +547,59 @@ async function handlePersonalization(request: Request, env: Env): Promise<Respon
       return new Response('Missing visitor ID', { status: 400 });
     }
 
-    // Try KV first for computed personalization (return visitors with scores)
-    let personalization = await env.PERSONALIZATION.get(visitorId, 'json');
+    // Try IDENTITY_STORE first (where we synced lead data)
+    let personalization = await env.IDENTITY_STORE.get(visitorId, 'json');
 
     if (!personalization) {
-      // Not in KV, check if this is a known lead from identity_map
+      // Try PERSONALIZATION namespace (for computed behavioral data)
+      personalization = await env.PERSONALIZATION.get(visitorId, 'json');
+    }
+
+    if (!personalization) {
+      // Not in either KV, check if this is a known lead from identity_map  
       const identity = await lookupIdentityInBigQuery(visitorId, env);
       
       if (identity) {
-        // First visit - use data from leads table via identity_map
+        // First visit - use ALL data from leads table
         personalization = {
           personalized: true,
+          
+          // Basic identity
           firstName: identity.firstName,
           lastName: identity.lastName,
-          company: identity.company,
+          personName: identity.personName,
           email: identity.email,
-          // No behavior data yet
+          
+          // Company data
+          company: identity.company || identity.companyName,
+          companyName: identity.companyName,
+          companyDescription: identity.companyDescription,
+          companySize: identity.companySize,
+          revenue: identity.revenue,
+          industry: identity.industry,
+          department: identity.department,
+          companyWebsite: identity.companyWebsite,
+          companyLinkedin: identity.companyLinkedin,
+          domain: identity.domain,
+          
+          // Job data
+          jobTitle: identity.jobTitle,
+          seniority: identity.seniority,
+          
+          // Contact data
+          phone: identity.phone,
+          linkedin: identity.linkedin,
+          
+          // Campaign attribution
+          campaignId: identity.campaignId,
+          campaignName: identity.campaignName,
+          
+          // Behavior (not available yet on first visit)
           intentScore: 0,
           engagementLevel: 'new',
-          viewedPricing: false,
-          submittedForm: false,
-          isFirstVisit: true
+          isFirstVisit: true,
+          totalVisits: 0,
+          totalPageviews: 0
         };
       } else {
         // Unknown visitor
