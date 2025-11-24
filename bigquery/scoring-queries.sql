@@ -33,10 +33,8 @@ USING (
       -- Active time
       MAX(CAST(JSON_EXTRACT_SCALAR(data, '$.activeTime') AS INT64)) as activeTime,
       
-      -- High-intent page detection
-      COUNTIF(url LIKE '%/pricing%' OR url LIKE '%/plans%') > 0 as viewedPricing,
-      COUNTIF(url LIKE '%/case-stud%' OR url LIKE '%/customers%') > 0 as viewedCaseStudies,
-      COUNTIF(url LIKE '%/product%' OR url LIKE '%/features%') > 0 as viewedProduct,
+      -- High-intent pages (array of URLs containing key paths)
+      ARRAY_AGG(DISTINCT url) FILTER (WHERE url LIKE '%/pricing%' OR url LIKE '%/demo%' OR url LIKE '%/contact%') as highIntentPages,
       
       -- Entry/Exit
       ARRAY_AGG(url ORDER BY timestamp LIMIT 1)[OFFSET(0)] as entryUrl,
@@ -98,9 +96,7 @@ USING (
       country,
       city,
       region,
-      viewedPricing,
-      viewedCaseStudies,
-      viewedProduct,
+      highIntentPages,
       
       -- Calculate engagement score (0-100)
       LEAST(100, (
@@ -111,9 +107,7 @@ USING (
         (formsSubmitted * 30) +
         (videosWatched * 20) +
         (CAST(activeTime AS FLOAT64) / 10) +
-        (IF(viewedPricing, 25, 0)) +
-        (IF(viewedCaseStudies, 15, 0)) +
-        (IF(viewedProduct, 10, 0))
+        (ARRAY_LENGTH(COALESCE(highIntentPages, [])) * 15)  -- +15 points per high-intent page visited
       )) as engagementScore
       
     FROM session_events
@@ -134,24 +128,20 @@ WHEN MATCHED THEN
     formsSubmitted = S.formsSubmitted,
     videosWatched = S.videosWatched,
     engagementScore = S.engagementScore,
-    viewedPricing = S.viewedPricing,
-    viewedCaseStudies = S.viewedCaseStudies,
-    viewedProduct = S.viewedProduct,
+    highIntentPages = S.highIntentPages,
     _updatedAt = CURRENT_TIMESTAMP()
 WHEN NOT MATCHED THEN
   INSERT (
     sessionId, visitorId, startTime, endTime, duration, activeTime,
     entryUrl, entryReferrer, exitUrl, pageviews, clicks, maxScrollDepth,
     formsStarted, formsSubmitted, videosWatched, device, browser, os,
-    country, city, region, engagementScore, viewedPricing, 
-    viewedCaseStudies, viewedProduct, _updatedAt
+    country, city, region, engagementScore, highIntentPages, _updatedAt
   )
   VALUES (
     S.sessionId, S.visitorId, S.startTime, S.endTime, S.duration, S.activeTime,
     S.entryUrl, S.entryReferrer, S.exitUrl, S.pageviews, S.clicks, S.maxScrollDepth,
     S.formsStarted, S.formsSubmitted, S.videosWatched, S.device, S.browser, S.os,
-    S.country, S.city, S.region, S.engagementScore, S.viewedPricing,
-    S.viewedCaseStudies, S.viewedProduct, CURRENT_TIMESTAMP()
+    S.country, S.city, S.region, S.engagementScore, S.highIntentPages, CURRENT_TIMESTAMP()
   );
 
 

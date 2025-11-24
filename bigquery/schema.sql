@@ -79,10 +79,7 @@ CREATE TABLE IF NOT EXISTS `outbound_sales.sessions` (
   -- Engagement Score (0-100)
   engagementScore FLOAT64,
   
-  -- Intent Signals
-  viewedPricing BOOL DEFAULT FALSE,
-  viewedCaseStudies BOOL DEFAULT FALSE,
-  viewedProduct BOOL DEFAULT FALSE,
+  -- High-Intent Pages (URLs visited)
   highIntentPages ARRAY<STRING>,
   
   -- Metadata
