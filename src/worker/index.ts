@@ -143,14 +143,14 @@ function enrichEvent(event: TrackingEvent, request: Request): any {
   
   // Parse URL for additional context
   const url = new URL(event.url);
-  const urlParams = Object.fromEntries(url.searchParams.entries());
+  const urlParams = Object.fromEntries(Array.from(url.searchParams.entries()));
   
   // Company identifier (IP-based, without reverse lookup)
   // Use last 2 octets of IP as company identifier (same subnet = likely same company)
   const companyIdentifier = ip ? hashString(ip.split('.').slice(0, 2).join('.')) : null;
 
   return {
-    ...event,
+    ...(event as any),
     
     // Server timestamps
     serverTimestamp: Date.now(),
@@ -279,7 +279,7 @@ async function storeEvents(events: any[], env: Env): Promise<void> {
       throw new Error(`BigQuery error: ${response.status} - ${error}`);
     }
 
-    const result = await response.json();
+    const result = await response.json() as any;
     
     if (result.insertErrors) {
       console.error('❌ BigQuery insert errors:', JSON.stringify(result.insertErrors, null, 2));
@@ -336,7 +336,7 @@ async function createBigQueryToken(credentials: any): Promise<string> {
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
   });
 
-  const tokenData = await tokenResponse.json();
+  const tokenData = await tokenResponse.json() as any;
   return tokenData.access_token;
 }
 
@@ -492,7 +492,7 @@ async function lookupIdentityInBigQuery(shortId: string, env: Env): Promise<any>
       return null;
     }
     
-    const result = await response.json();
+    const result = await response.json() as any;
     
     if (result.rows && result.rows.length > 0) {
       const row = result.rows[0].f;
@@ -614,7 +614,7 @@ async function handlePersonalization(request: Request, env: Env): Promise<Respon
 
     return new Response(JSON.stringify({
       personalized: true,
-      ...personalization
+      ...(personalization as Record<string, any>)
     }), {
       headers: { 
         'Content-Type': 'application/json',

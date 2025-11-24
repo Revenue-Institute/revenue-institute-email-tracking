@@ -300,7 +300,7 @@ class OutboundIntentTracker {
       // UTM & Campaign tracking (all parameters)
       ...utmParams,
       hasUtm: Object.keys(utmParams).length > 0,
-      allUrlParams: Object.fromEntries(urlParams.entries()), // ALL query params
+      allUrlParams: Object.fromEntries(Array.from(urlParams.entries())), // ALL query params
       
       // Visit tracking
       visitNumber: visitCount,
@@ -397,7 +397,7 @@ class OutboundIntentTracker {
     let emailFound = '';
 
     // Capture form fields (hash emails)
-    for (const [key, value] of formData.entries()) {
+    for (const [key, value] of Array.from(formData.entries())) {
       if (key.toLowerCase().includes('email') && typeof value === 'string' && value.includes('@')) {
         emailFound = value;
         // Hash email for privacy and de-anonymization
