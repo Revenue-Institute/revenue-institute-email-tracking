@@ -4,9 +4,11 @@ compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 account_id = "e406ada6b728029380a6465d03932cb8"
 
-# Scheduled triggers - runs directly in Worker
+# Scheduled triggers - runs directly in Worker  
 [triggers]
-crons = ["0 * * * *"]  # Every hour at minute 0
+crons = [
+  "0 */3 * * *"  # Every 3 hours (8 times per day)
+]
 
 # KV Namespace for identity and personalization
 [[kv_namespaces]]
