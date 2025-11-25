@@ -66,19 +66,30 @@ export default {
     }
 
     if (url.pathname === '/sync-kv-now' && request.method === 'POST') {
-      // Manual trigger for testing KV sync (requires secret)
+      // Manual/webhook trigger for KV sync
+      // Can be called from anywhere to immediately sync new leads
       const authHeader = request.headers.get('Authorization');
       if (authHeader !== `Bearer ${env.EVENT_SIGNING_SECRET}`) {
         return new Response('Unauthorized', { status: 401 });
       }
       
+      console.log('🔔 Manual KV sync triggered via webhook');
+      
       try {
         await syncBigQueryToKV(env);
-        return new Response(JSON.stringify({ success: true, message: 'KV sync completed' }), {
+        return new Response(JSON.stringify({ 
+          success: true, 
+          message: 'KV sync completed',
+          timestamp: new Date().toISOString()
+        }), {
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (error: any) {
-        return new Response(JSON.stringify({ success: false, error: error.message }), {
+        console.error('❌ Manual sync failed:', error);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: error.message 
+        }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -254,7 +265,10 @@ async function syncBigQueryToKV(env: Env): Promise<void> {
     const projectId = env.BIGQUERY_PROJECT_ID;
     const dataset = env.BIGQUERY_DATASET;
     
-    // Query for new/recently active leads (last 24 hours)
+    // Query for ALL new/recently active leads (no limit!)
+    // Syncs:
+    // 1. ALL leads added in last 6 hours (catches everything between syncs)
+    // 2. ALL leads who visited in last 6 hours (behavioral updates)
     const query = `
       SELECT 
         l.trackingId,
@@ -275,15 +289,14 @@ async function syncBigQueryToKV(env: Env): Promise<void> {
       FROM \`${projectId}.${dataset}.leads\` l
       WHERE l.trackingId IS NOT NULL
         AND (
-          l.inserted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+          l.inserted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 6 HOUR)
           OR l.trackingId IN (
             SELECT DISTINCT visitorId 
             FROM \`${projectId}.${dataset}.events\`
-            WHERE _insertedAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+            WHERE _insertedAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 6 HOUR)
               AND visitorId IS NOT NULL
           )
         )
-      LIMIT 1000
     `;
     
     const queryUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`;
