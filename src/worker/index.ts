@@ -81,6 +81,18 @@ export default {
     }
 
     return new Response('Not Found', { status: 404 });
+  },
+
+  // Scheduled trigger - runs every hour to sync KV
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    console.log('🔄 Hourly KV sync started:', new Date().toISOString());
+    
+    try {
+      await syncBigQueryToKV(env);
+      console.log('✅ Hourly KV sync completed successfully');
+    } catch (error: any) {
+      console.error('❌ KV sync failed:', error.message);
+    }
   }
 };
 
@@ -209,6 +221,126 @@ function hashString(str: string): string {
     hash = hash & hash;
   }
   return hash.toString(36);
+}
+
+/**
+ * Sync BigQuery leads to Cloudflare KV (runs hourly via cron)
+ */
+async function syncBigQueryToKV(env: Env): Promise<void> {
+  console.log('📊 Starting BigQuery → KV sync...');
+  
+  try {
+    const token = await createBigQueryToken(JSON.parse(env.BIGQUERY_CREDENTIALS));
+    const projectId = env.BIGQUERY_PROJECT_ID;
+    const dataset = env.BIGQUERY_DATASET;
+    
+    // Query for new/recently active leads (last 24 hours)
+    const query = `
+      SELECT 
+        l.trackingId,
+        l.person_name,
+        l.email,
+        l.company_name,
+        l.company_website,
+        l.company_size,
+        l.revenue,
+        l.industry,
+        l.job_title,
+        l.seniority,
+        l.department,
+        l.phone,
+        l.linkedin,
+        l.company_linkedin,
+        l.company_description
+      FROM \`${projectId}.${dataset}.leads\` l
+      WHERE l.trackingId IS NOT NULL
+        AND (
+          l.inserted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+          OR l.trackingId IN (
+            SELECT DISTINCT visitorId 
+            FROM \`${projectId}.${dataset}.events\`
+            WHERE _insertedAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+              AND visitorId IS NOT NULL
+          )
+        )
+      LIMIT 1000
+    `;
+    
+    const queryUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`;
+    
+    const response = await fetch(queryUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query,
+        useLegacySql: false
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`BigQuery query failed: ${response.status}`);
+    }
+    
+    const result = await response.json() as any;
+    
+    if (!result.rows || result.rows.length === 0) {
+      console.log('ℹ️ No new leads to sync');
+      return;
+    }
+    
+    console.log(`📦 Found ${result.rows.length} leads to sync`);
+    
+    // Transform and upload to KV
+    let synced = 0;
+    for (const row of result.rows) {
+      const f = row.f;
+      const personName = f[1].v || '';
+      const nameParts = personName.split(' ');
+      
+      const personalizationData = {
+        firstName: nameParts[0] || '',
+        lastName: nameParts.slice(1).join(' ') || '',
+        personName,
+        email: f[2].v,
+        phone: f[11].v,
+        linkedin: f[12].v,
+        company: f[3].v,
+        companyName: f[3].v,
+        domain: f[4].v || (f[2].v ? f[2].v.split('@')[1] : ''),
+        companyWebsite: f[4].v,
+        companyDescription: f[14].v,
+        companySize: f[5].v,
+        revenue: f[6].v,
+        industry: f[7].v,
+        companyLinkedin: f[13].v,
+        jobTitle: f[8].v,
+        seniority: f[9].v,
+        department: f[10].v,
+        isFirstVisit: true,
+        intentScore: 0,
+        engagementLevel: 'new',
+        syncedAt: new Date().toISOString()
+      };
+      
+      // Store in KV with 90-day expiration
+      await env.IDENTITY_STORE.put(
+        f[0].v, // trackingId
+        JSON.stringify(personalizationData),
+        { expirationTtl: 90 * 24 * 60 * 60 }
+      );
+      
+      synced++;
+    }
+    
+    console.log(`✅ Synced ${synced} leads to KV`);
+    
+  } catch (error: any) {
+    console.error('❌ KV sync error:', error.message);
+    throw error;
+  }
 }
 
 /**
