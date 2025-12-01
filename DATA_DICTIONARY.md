@@ -445,3 +445,4 @@ ORDER BY pagesViewed DESC;
 
 **Build YOUR OWN scoring logic using these signals!** 🎯
 
+

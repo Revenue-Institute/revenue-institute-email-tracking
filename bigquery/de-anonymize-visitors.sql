@@ -93,3 +93,4 @@ WHERE mi.sessionId NOT IN (
 )
 GROUP BY mi.sessionId, mi.trackingId, mi.email, mi.emailHash;
 
+

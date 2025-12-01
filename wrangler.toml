@@ -4,6 +4,15 @@ compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 account_id = "e406ada6b728029380a6465d03932cb8"
 
+# Observability - Enable logging
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+
 # Scheduled triggers - runs directly in Worker  
 [triggers]
 crons = [

@@ -82,3 +82,4 @@ echo "⚠️  This will take a while to upload one by one."
 echo "To upload faster, run the generated script:"
 echo "bash /tmp/upload_commands.sh"
 
+

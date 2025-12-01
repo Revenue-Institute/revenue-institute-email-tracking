@@ -32,3 +32,4 @@ SELECT
   (SELECT COUNT(*) FROM `n8n-revenueinstitute.outbound_sales.leads`) as total_leads,
   (SELECT COUNT(*) FROM `n8n-revenueinstitute.outbound_sales.identity_map`) as mapped_leads;
 
+

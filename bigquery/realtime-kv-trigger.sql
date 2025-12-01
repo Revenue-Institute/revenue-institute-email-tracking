@@ -44,3 +44,4 @@ END IF;
 -- FROM `n8n-revenueinstitute.outbound_sales.leads`
 -- WHERE inserted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 10 MINUTE);
 
+

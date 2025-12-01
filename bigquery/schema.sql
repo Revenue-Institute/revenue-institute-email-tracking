@@ -17,19 +17,50 @@ CREATE TABLE IF NOT EXISTS `outbound_sales.events` (
   -- Page Context
   url STRING,
   referrer STRING,
+  refererHeader STRING,
   
   -- Event Data (flexible JSON)
   data JSON,
   
-  -- Server-side Enrichment
+  -- Server-side Enrichment: IP & Geo
   ip STRING,
+  ipHash STRING,
+  companyIdentifier STRING,
   country STRING,
-  userAgent STRING,
-  colo STRING,
-  asn INT64,
   city STRING,
   region STRING,
+  continent STRING,
+  postalCode STRING,
+  metroCode STRING,
+  latitude STRING,
+  longitude STRING,
   timezone STRING,
+  
+  -- Network & ISP
+  colo STRING,
+  asn INT64,
+  asOrganization STRING,
+  
+  -- Device & Browser
+  userAgent STRING,
+  acceptLanguage STRING,
+  deviceType STRING,
+  
+  -- UTM & Campaign Tracking
+  urlParams JSON,
+  utmSource STRING,
+  utmMedium STRING,
+  utmCampaign STRING,
+  utmTerm STRING,
+  utmContent STRING,
+  gclid STRING,
+  fbclid STRING,
+  
+  -- Privacy & Security
+  isEUCountry STRING,
+  tlsVersion STRING,
+  tlsCipher STRING,
+  httpProtocol STRING,
   
   -- Metadata
   _insertedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP()

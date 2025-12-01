@@ -402,10 +402,11 @@ async function storeEvents(events: any[], env: Env): Promise<void> {
     console.log('📊 BigQuery URL:', url);
 
     const rows = events.map((event, index) => {
-      // Convert data field to JSON string if it exists
+      // Convert JSON fields to strings for BigQuery
       const eventForBQ = {
         ...event,
-        data: event.data ? JSON.stringify(event.data) : null
+        data: event.data ? JSON.stringify(event.data) : null,
+        urlParams: event.urlParams ? JSON.stringify(event.urlParams) : null
       };
       
       return {

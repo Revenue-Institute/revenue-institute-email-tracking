@@ -57,3 +57,4 @@ FROM `n8n-revenueinstitute.outbound_sales.leads`
 WHERE trackingId IS NOT NULL
 LIMIT 10;
 
+
