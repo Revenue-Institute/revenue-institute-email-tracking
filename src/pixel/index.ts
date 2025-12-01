@@ -188,9 +188,14 @@ class OutboundIntentTracker {
       }, 150);
     }, { passive: true });
 
-    // Click tracking
+    // Click tracking - ALL mouse clicks (not just links/buttons)
     document.addEventListener('click', (e) => {
       this.trackClick(e);
+    }, { passive: true });
+
+    // Keyboard event tracking
+    document.addEventListener('keydown', (e) => {
+      this.trackKeyPress(e);
     }, { passive: true });
 
     // Form tracking
@@ -375,19 +380,55 @@ class OutboundIntentTracker {
     const target = e.target as HTMLElement;
     const tagName = target.tagName.toLowerCase();
     
-    // Track links and buttons
-    if (tagName === 'a' || tagName === 'button' || target.closest('a') || target.closest('button')) {
-      const element = target.closest('a') || target.closest('button') || target;
-      this.trackEvent('click', {
-        elementType: element.tagName.toLowerCase(),
-        elementId: element.id,
-        elementClass: element.className,
-        elementText: element.textContent?.substring(0, 100),
-        href: (element as HTMLAnchorElement).href,
-        x: e.clientX,
-        y: e.clientY
-      });
+    // Track ALL clicks (not just links/buttons)
+    const element = target.closest('a') || target.closest('button') || target;
+    const isLinkOrButton = tagName === 'a' || tagName === 'button' || target.closest('a') || target.closest('button');
+    
+    this.trackEvent('click', {
+      elementType: element.tagName.toLowerCase(),
+      elementId: element.id || null,
+      elementClass: element.className || null,
+      elementText: element.textContent?.substring(0, 100) || null,
+      href: (element as HTMLAnchorElement).href || null,
+      x: e.clientX,
+      y: e.clientY,
+      button: e.button, // 0=left, 1=middle, 2=right
+      isLinkOrButton: isLinkOrButton,
+      // Additional context
+      targetTag: tagName,
+      targetId: target.id || null,
+      targetClass: target.className || null
+    });
+  }
+
+  private trackKeyPress(e: KeyboardEvent): void {
+    // Skip tracking modifier keys alone (Shift, Ctrl, Alt, Meta)
+    if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab'].includes(e.key)) {
+      return;
     }
+
+    const target = e.target as HTMLElement;
+    const isInputField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
+    
+    this.trackEvent('key_press', {
+      key: e.key,
+      code: e.code,
+      keyCode: e.keyCode,
+      which: e.which,
+      // Modifier keys
+      shiftKey: e.shiftKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey,
+      // Context
+      isInputField: isInputField,
+      targetTag: target.tagName.toLowerCase(),
+      targetType: (target as HTMLInputElement).type || null,
+      targetId: target.id || null,
+      targetName: (target as HTMLInputElement).name || null,
+      // Prevent default info (for debugging)
+      defaultPrevented: e.defaultPrevented
+    });
   }
 
   private async trackFormSubmit(e: Event): Promise<void> {

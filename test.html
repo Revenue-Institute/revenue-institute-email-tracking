@@ -46,7 +46,19 @@
   <div>
     <button onclick="testClick()">Test Click Event</button>
     <button onclick="testScroll()">Test Scroll Event</button>
+    <button onclick="testKeyboard()">Test Keyboard Event</button>
     <button onclick="window.scrollTo(0, document.body.scrollHeight)">Scroll to Bottom</button>
+  </div>
+  
+  <div style="margin: 20px 0; padding: 15px; background: #e7f3ff; border-radius: 5px;">
+    <h3>🧪 Event Tracking Test</h3>
+    <p><strong>Try these actions to verify tracking:</strong></p>
+    <ul>
+      <li><strong>Click anywhere</strong> on the page (not just buttons) - should track all clicks</li>
+      <li><strong>Press any key</strong> - should track keyboard events</li>
+      <li><strong>Type in this input:</strong> <input type="text" placeholder="Type here..." style="padding: 5px; margin-left: 10px;"></li>
+      <li>Check browser console for "[OutboundIntentTracker]" messages</li>
+    </ul>
   </div>
 
   <h2>Instructions</h2>
@@ -124,6 +136,21 @@ LIMIT 10;</pre>
       setTimeout(() => {
         alert('Scroll event sent! Check console and BigQuery in 1-2 minutes.');
       }, 500);
+    }
+
+    function testKeyboard() {
+      console.log('🧪 Testing keyboard event...');
+      if (window.oieTracker) {
+        // Simulate a key press event
+        const testEvent = new KeyboardEvent('keydown', {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          bubbles: true
+        });
+        document.dispatchEvent(testEvent);
+        alert('Keyboard event sent! Press any key on the page to test real tracking. Check console and BigQuery in 1-2 minutes.');
+      }
     }
 
     // Update status after tracker loads
