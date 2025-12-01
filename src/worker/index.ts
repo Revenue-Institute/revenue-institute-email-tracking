@@ -314,7 +314,28 @@ async function syncBigQueryToKV(env: Env): Promise<void> {
     });
     
     if (!response.ok) {
-      throw new Error(`BigQuery query failed: ${response.status}`);
+      const errorText = await response.text();
+      let errorMessage = `BigQuery query failed: ${response.status}`;
+      
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error?.message) {
+          errorMessage = `BigQuery query failed: ${response.status} - ${errorJson.error.message}`;
+        } else if (errorJson.error) {
+          errorMessage = `BigQuery query failed: ${response.status} - ${JSON.stringify(errorJson.error)}`;
+        }
+      } catch (e) {
+        // If error response isn't JSON, use the text
+        errorMessage = `BigQuery query failed: ${response.status} - ${errorText.substring(0, 200)}`;
+      }
+      
+      console.error('❌ BigQuery query error details:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      });
+      
+      throw new Error(errorMessage);
     }
     
     const result = await response.json() as any;
@@ -464,8 +485,10 @@ async function storeEvents(events: any[], env: Env): Promise<void> {
 
 /**
  * Create JWT token for BigQuery API
+ * @param credentials - Service account credentials JSON
+ * @param scope - OAuth scope (default: full BigQuery access for read + write)
  */
-async function createBigQueryToken(credentials: any): Promise<string> {
+async function createBigQueryToken(credentials: any, scope?: string): Promise<string> {
   const header = {
     alg: 'RS256',
     typ: 'JWT',
@@ -475,7 +498,8 @@ async function createBigQueryToken(credentials: any): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: credentials.client_email,
-    scope: 'https://www.googleapis.com/auth/bigquery.insertdata',
+    // Use full BigQuery scope to allow both read (queries) and write (inserts)
+    scope: scope || 'https://www.googleapis.com/auth/bigquery',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now

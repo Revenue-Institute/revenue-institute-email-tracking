@@ -493,38 +493,121 @@ class OutboundIntentTracker {
   }
 
   private setupVideoTracking(): void {
-    const videos = document.querySelectorAll('video');
-    videos.forEach(video => {
-      let tracked25 = false, tracked50 = false, tracked75 = false, tracked100 = false;
-
-      video.addEventListener('play', () => {
-        this.trackEvent('video_play', { src: video.src || video.currentSrc });
-      });
-
-      video.addEventListener('pause', () => {
-        this.trackEvent('video_pause', { src: video.src || video.currentSrc, currentTime: video.currentTime });
-      });
-
-      video.addEventListener('timeupdate', () => {
-        const percent = (video.currentTime / video.duration) * 100;
-        if (percent >= 25 && !tracked25) {
-          tracked25 = true;
-          this.trackEvent('video_progress', { src: video.src || video.currentSrc, progress: 25 });
-        }
-        if (percent >= 50 && !tracked50) {
-          tracked50 = true;
-          this.trackEvent('video_progress', { src: video.src || video.currentSrc, progress: 50 });
-        }
-        if (percent >= 75 && !tracked75) {
-          tracked75 = true;
-          this.trackEvent('video_progress', { src: video.src || video.currentSrc, progress: 75 });
-        }
-        if (percent >= 100 && !tracked100) {
-          tracked100 = true;
-          this.trackEvent('video_complete', { src: video.src || video.currentSrc });
-        }
-      });
+    // Track existing videos
+    const existingVideos = document.querySelectorAll('video');
+    existingVideos.forEach(video => {
+      this.attachVideoTracking(video);
     });
+
+    // Watch for dynamically added videos
+    if (typeof MutationObserver !== 'undefined') {
+      const videoObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === 1) { // Element node
+              const element = node as HTMLElement;
+              // Check if the added node is a video
+              if (element.tagName === 'VIDEO') {
+                this.attachVideoTracking(element as HTMLVideoElement);
+              }
+              // Check if the added node contains videos
+              const videos = element.querySelectorAll?.('video');
+              if (videos) {
+                videos.forEach(video => {
+                  this.attachVideoTracking(video);
+                });
+              }
+            }
+          });
+        });
+      });
+
+      // Start observing the document body for added video elements
+      videoObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    }
+  }
+
+  private attachVideoTracking(video: HTMLVideoElement): void {
+    // Skip if already tracking this video
+    if ((video as any)._oieTracked) {
+      return;
+    }
+    (video as any)._oieTracked = true;
+
+    let tracked25 = false, tracked50 = false, tracked75 = false, tracked100 = false;
+
+    const getVideoInfo = () => ({
+      src: video.src || video.currentSrc || null,
+      duration: isFinite(video.duration) ? video.duration : null,
+      videoId: video.id || null,
+      videoClass: video.className || null
+    });
+
+    video.addEventListener('play', () => {
+      this.trackEvent('video_play', getVideoInfo());
+    }, { passive: true });
+
+    video.addEventListener('pause', () => {
+      this.trackEvent('video_pause', {
+        ...getVideoInfo(),
+        currentTime: isFinite(video.currentTime) ? video.currentTime : null
+      });
+    }, { passive: true });
+
+    video.addEventListener('timeupdate', () => {
+      // Skip if duration is invalid
+      if (!isFinite(video.duration) || video.duration <= 0) {
+        return;
+      }
+
+      const percent = (video.currentTime / video.duration) * 100;
+      
+      if (percent >= 25 && !tracked25) {
+        tracked25 = true;
+        this.trackEvent('video_progress', {
+          ...getVideoInfo(),
+          progress: 25,
+          currentTime: video.currentTime
+        });
+      }
+      if (percent >= 50 && !tracked50) {
+        tracked50 = true;
+        this.trackEvent('video_progress', {
+          ...getVideoInfo(),
+          progress: 50,
+          currentTime: video.currentTime
+        });
+      }
+      if (percent >= 75 && !tracked75) {
+        tracked75 = true;
+        this.trackEvent('video_progress', {
+          ...getVideoInfo(),
+          progress: 75,
+          currentTime: video.currentTime
+        });
+      }
+      if (percent >= 100 && !tracked100) {
+        tracked100 = true;
+        this.trackEvent('video_complete', {
+          ...getVideoInfo(),
+          duration: video.duration
+        });
+      }
+    }, { passive: true });
+
+    // Track video ended event (alternative to 100% completion)
+    video.addEventListener('ended', () => {
+      if (!tracked100) {
+        tracked100 = true;
+        this.trackEvent('video_complete', {
+          ...getVideoInfo(),
+          duration: video.duration
+        });
+      }
+    }, { passive: true });
   }
 
   private setupRageClickDetection(): void {
