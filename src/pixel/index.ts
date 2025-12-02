@@ -495,9 +495,26 @@ class OutboundIntentTracker {
   private setupVideoTracking(): void {
     // Track existing videos
     const existingVideos = document.querySelectorAll('video');
-    existingVideos.forEach(video => {
+    this.log('🎥 Found', existingVideos.length, 'video elements on page');
+    
+    existingVideos.forEach((video, index) => {
+      this.log(`🎥 Attaching tracking to video ${index + 1}:`, video.src || video.currentSrc || 'no src');
       this.attachVideoTracking(video);
     });
+
+    // Also try after DOM is fully loaded (in case videos load late)
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        const lateVideos = document.querySelectorAll('video');
+        this.log('🎥 Found', lateVideos.length, 'video elements after DOMContentLoaded');
+        lateVideos.forEach((video, index) => {
+          if (!(video as any)._oieTracked) {
+            this.log(`🎥 Attaching tracking to late-loaded video ${index + 1}:`, video.src || video.currentSrc || 'no src');
+            this.attachVideoTracking(video);
+          }
+        });
+      });
+    }
 
     // Watch for dynamically added videos
     if (typeof MutationObserver !== 'undefined') {
@@ -508,13 +525,18 @@ class OutboundIntentTracker {
               const element = node as HTMLElement;
               // Check if the added node is a video
               if (element.tagName === 'VIDEO') {
-                this.attachVideoTracking(element as HTMLVideoElement);
+                const videoElement = element as HTMLVideoElement;
+                this.log('🎥 New video element detected via MutationObserver:', videoElement.src || videoElement.currentSrc || 'no src');
+                this.attachVideoTracking(videoElement);
               }
               // Check if the added node contains videos
               const videos = element.querySelectorAll?.('video');
-              if (videos) {
+              if (videos && videos.length > 0) {
+                this.log('🎥 Found', videos.length, 'video(s) in new element');
                 videos.forEach(video => {
-                  this.attachVideoTracking(video);
+                  if (!(video as any)._oieTracked) {
+                    this.attachVideoTracking(video);
+                  }
                 });
               }
             }
@@ -527,12 +549,14 @@ class OutboundIntentTracker {
         childList: true,
         subtree: true
       });
+      this.log('🎥 MutationObserver set up to watch for new videos');
     }
   }
 
   private attachVideoTracking(video: HTMLVideoElement): void {
     // Skip if already tracking this video
     if ((video as any)._oieTracked) {
+      this.log('🎥 Video already tracked, skipping:', video.src || video.currentSrc || 'no src');
       return;
     }
     (video as any)._oieTracked = true;
@@ -546,68 +570,95 @@ class OutboundIntentTracker {
       videoClass: video.className || null
     });
 
-    video.addEventListener('play', () => {
-      this.trackEvent('video_play', getVideoInfo());
-    }, { passive: true });
-
-    video.addEventListener('pause', () => {
-      this.trackEvent('video_pause', {
-        ...getVideoInfo(),
-        currentTime: isFinite(video.currentTime) ? video.currentTime : null
-      });
-    }, { passive: true });
-
-    video.addEventListener('timeupdate', () => {
-      // Skip if duration is invalid
-      if (!isFinite(video.duration) || video.duration <= 0) {
-        return;
-      }
-
-      const percent = (video.currentTime / video.duration) * 100;
+    // Wait for video metadata to be loaded (duration might not be available immediately)
+    const setupTracking = () => {
+      this.log('🎥 Setting up event listeners for video:', video.src || video.currentSrc || video.id || 'unnamed');
       
-      if (percent >= 25 && !tracked25) {
-        tracked25 = true;
-        this.trackEvent('video_progress', {
-          ...getVideoInfo(),
-          progress: 25,
-          currentTime: video.currentTime
-        });
-      }
-      if (percent >= 50 && !tracked50) {
-        tracked50 = true;
-        this.trackEvent('video_progress', {
-          ...getVideoInfo(),
-          progress: 50,
-          currentTime: video.currentTime
-        });
-      }
-      if (percent >= 75 && !tracked75) {
-        tracked75 = true;
-        this.trackEvent('video_progress', {
-          ...getVideoInfo(),
-          progress: 75,
-          currentTime: video.currentTime
-        });
-      }
-      if (percent >= 100 && !tracked100) {
-        tracked100 = true;
-        this.trackEvent('video_complete', {
-          ...getVideoInfo(),
-          duration: video.duration
-        });
-      }
-    }, { passive: true });
+      video.addEventListener('play', () => {
+        this.log('🎥 Video play event detected');
+        this.trackEvent('video_play', getVideoInfo());
+      }, { passive: true });
 
-    // Track video ended event (alternative to 100% completion)
-    video.addEventListener('ended', () => {
-      if (!tracked100) {
-        tracked100 = true;
-        this.trackEvent('video_complete', {
+      video.addEventListener('pause', () => {
+        this.log('🎥 Video pause event detected at', video.currentTime, 'seconds');
+        this.trackEvent('video_pause', {
           ...getVideoInfo(),
-          duration: video.duration
+          currentTime: isFinite(video.currentTime) ? video.currentTime : null
         });
-      }
-    }, { passive: true });
+      }, { passive: true });
+
+      video.addEventListener('timeupdate', () => {
+        // Skip if duration is invalid
+        if (!isFinite(video.duration) || video.duration <= 0 || !isFinite(video.currentTime)) {
+          return;
+        }
+
+        const percent = (video.currentTime / video.duration) * 100;
+        
+        if (percent >= 25 && !tracked25) {
+          tracked25 = true;
+          this.log('🎥 Video progress: 25%');
+          this.trackEvent('video_progress', {
+            ...getVideoInfo(),
+            progress: 25,
+            currentTime: video.currentTime
+          });
+        }
+        if (percent >= 50 && !tracked50) {
+          tracked50 = true;
+          this.log('🎥 Video progress: 50%');
+          this.trackEvent('video_progress', {
+            ...getVideoInfo(),
+            progress: 50,
+            currentTime: video.currentTime
+          });
+        }
+        if (percent >= 75 && !tracked75) {
+          tracked75 = true;
+          this.log('🎥 Video progress: 75%');
+          this.trackEvent('video_progress', {
+            ...getVideoInfo(),
+            progress: 75,
+            currentTime: video.currentTime
+          });
+        }
+        if (percent >= 100 && !tracked100) {
+          tracked100 = true;
+          this.log('🎥 Video progress: 100%');
+          this.trackEvent('video_complete', {
+            ...getVideoInfo(),
+            duration: video.duration
+          });
+        }
+      }, { passive: true });
+
+      // Track video ended event (alternative to 100% completion)
+      video.addEventListener('ended', () => {
+        if (!tracked100) {
+          tracked100 = true;
+          this.log('🎥 Video ended event detected');
+          this.trackEvent('video_complete', {
+            ...getVideoInfo(),
+            duration: video.duration
+          });
+        }
+      }, { passive: true });
+
+      // Track when video metadata is loaded (duration available)
+      video.addEventListener('loadedmetadata', () => {
+        this.log('🎥 Video metadata loaded. Duration:', video.duration, 'seconds');
+      }, { passive: true });
+    };
+
+    // If video is already loaded, set up tracking immediately
+    if (video.readyState >= 1) { // HAVE_METADATA or higher
+      setupTracking();
+    } else {
+      // Wait for metadata to load
+      video.addEventListener('loadedmetadata', setupTracking, { once: true, passive: true });
+      // Also set up tracking on canplay (video can start playing)
+      video.addEventListener('canplay', setupTracking, { once: true, passive: true });
+    }
   }
 
   private setupRageClickDetection(): void {
