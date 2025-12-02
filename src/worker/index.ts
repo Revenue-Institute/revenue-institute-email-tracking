@@ -545,10 +545,84 @@ export default {
       }, { once: false, capture: true });
     });
   }
+  function setupEmbedlyContainerTracking() {
+    const embedContainers = document.querySelectorAll('.w-embed, [data-embed], .embedly-card, [class*="embedly"], [class*="w-embed"]');
+    console.log(\`🎥 Found \${embedContainers.length} embed container(s) to track\`);
+    embedContainers.forEach((container) => {
+      if (container._oieEmbedTracked) return;
+      container._oieEmbedTracked = true;
+      let videoId = null;
+      videoId = container.getAttribute('data-video-id') || 
+               container.getAttribute('data-youtube-id') ||
+               container.getAttribute('data-video') ||
+               container.getAttribute('data-embed-id');
+      if (!videoId) {
+        const iframe = container.querySelector('iframe');
+        if (iframe) {
+          const src = iframe.src || iframe.getAttribute('data-src') || '';
+          if (src.includes('youtube') || src.includes('youtu.be')) {
+            videoId = extractVideoId(src);
+          }
+        }
+      }
+      if (!videoId) {
+        const images = container.querySelectorAll('img');
+        for (const img of images) {
+          const src = img.src || img.getAttribute('src') || '';
+          const match = src.match(/i\\.ytimg\\.com\\/vi[^\\/]+\\/([^\\/]+)\\//);
+          if (match && match[1]) {
+            videoId = match[1];
+            break;
+          }
+        }
+      }
+      if (videoId) {
+        console.log(\`🎥 Setting up tracking for embed container with video: \${videoId}\`);
+        container.addEventListener('click', (e) => {
+          console.log('🎥 Embed container clicked, video:', videoId);
+          e.stopPropagation();
+          if (window.oieTracker) {
+            const playTime = Date.now();
+            window.oieTracker.track('video_play', {
+              src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+              videoId: videoId,
+              platform: 'youtube',
+              triggeredBy: 'embed_container_click'
+            });
+            if (!window._oieYouTubeWatchTimers) {
+              window._oieYouTubeWatchTimers = new Map();
+            }
+            if (window._oieYouTubeWatchTimers.has(videoId)) {
+              clearTimeout(window._oieYouTubeWatchTimers.get(videoId));
+            }
+            const watchTimer = setTimeout(() => {
+              if (window.oieTracker) {
+                console.log('✅ YouTube video watched (fallback timer):', videoId);
+                window.oieTracker.track('video_watched', {
+                  src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+                  videoId: videoId,
+                  platform: 'youtube',
+                  watchedSeconds: 10,
+                  watchedPercent: 0,
+                  watchTime: 10,
+                  threshold: 'time',
+                  triggeredBy: 'fallback_timer'
+                });
+              }
+              window._oieYouTubeWatchTimers.delete(videoId);
+            }, 10000);
+            window._oieYouTubeWatchTimers.set(videoId, watchTimer);
+          }
+        }, { capture: true });
+      }
+    });
+  }
   function tryInitialize() {
+    setupEmbedlyContainerTracking();
     setupPlayButtonTracking();
     initYouTubeTracking();
     setTimeout(() => {
+      setupEmbedlyContainerTracking();
       setupPlayButtonTracking();
       const videos = findYouTubeIframes();
       if (videos.length > 0 && trackedVideos.size === 0) {
@@ -557,6 +631,7 @@ export default {
       }
     }, 2000);
     setTimeout(() => {
+      setupEmbedlyContainerTracking();
       setupPlayButtonTracking();
       const videos = findYouTubeIframes();
       if (videos.length > 0 && trackedVideos.size === 0) {
@@ -565,6 +640,7 @@ export default {
       }
     }, 5000);
     setTimeout(() => {
+      setupEmbedlyContainerTracking();
       setupPlayButtonTracking();
       initYouTubeTracking();
     }, 10000);
@@ -579,6 +655,7 @@ export default {
   if (typeof MutationObserver !== 'undefined') {
     const observer = new MutationObserver((mutations) => {
       let hasNewYouTubeIframe = false;
+      let hasNewEmbedContainer = false;
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === 1) {
@@ -605,8 +682,10 @@ export default {
             if (element.hasAttribute && (
                 element.hasAttribute('data-embed') ||
                 element.className?.includes('embedly') ||
-                element.classList?.contains('embedly-card')
+                element.classList?.contains('embedly-card') ||
+                element.classList?.contains('w-embed')
             )) {
+              hasNewEmbedContainer = true;
               const iframe = element.querySelector('iframe');
               if (iframe) {
                 const src = iframe.src || iframe.getAttribute('data-src') || '';
@@ -622,8 +701,13 @@ export default {
           }
         });
       });
+      if (hasNewEmbedContainer) {
+        console.log('🎥 New embed container detected via MutationObserver, re-initializing...');
+        setupEmbedlyContainerTracking();
+      }
       if (hasNewYouTubeIframe) {
         console.log('🎥 New YouTube iframe detected via MutationObserver, re-initializing...');
+        setupEmbedlyContainerTracking();
         setupPlayButtonTracking();
         setTimeout(() => {
           initYouTubeTracking();

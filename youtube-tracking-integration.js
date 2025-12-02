@@ -610,6 +610,100 @@
     });
   }
 
+  // Track clicks on Embedly containers (Webflow uses these for YouTube embeds)
+  function setupEmbedlyContainerTracking() {
+    // Find all Embedly/Webflow embed containers
+    const embedContainers = document.querySelectorAll('.w-embed, [data-embed], .embedly-card, [class*="embedly"], [class*="w-embed"]');
+    console.log(`🎥 Found ${embedContainers.length} embed container(s) to track`);
+    
+    embedContainers.forEach((container) => {
+      if (container._oieEmbedTracked) return;
+      container._oieEmbedTracked = true;
+      
+      // Extract video ID from container
+      let videoId = null;
+      
+      // Check data attributes
+      videoId = container.getAttribute('data-video-id') || 
+               container.getAttribute('data-youtube-id') ||
+               container.getAttribute('data-video') ||
+               container.getAttribute('data-embed-id');
+      
+      // Check iframe inside container
+      if (!videoId) {
+        const iframe = container.querySelector('iframe');
+        if (iframe) {
+          const src = iframe.src || iframe.getAttribute('data-src') || '';
+          if (src.includes('youtube') || src.includes('youtu.be')) {
+            videoId = extractVideoId(src);
+          }
+        }
+      }
+      
+      // Check for YouTube thumbnail images
+      if (!videoId) {
+        const images = container.querySelectorAll('img');
+        for (const img of images) {
+          const src = img.src || img.getAttribute('src') || '';
+          const match = src.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
+          if (match && match[1]) {
+            videoId = match[1];
+            break;
+          }
+        }
+      }
+      
+      // If we found a video ID, set up click tracking
+      if (videoId) {
+        console.log(`🎥 Setting up tracking for embed container with video: ${videoId}`);
+        container.addEventListener('click', (e) => {
+          console.log('🎥 Embed container clicked, video:', videoId);
+          e.stopPropagation();
+          
+          if (window.oieTracker) {
+            const playTime = Date.now();
+            
+            // Track video_play event
+            window.oieTracker.track('video_play', {
+              src: `https://www.youtube.com/watch?v=${videoId}`,
+              videoId: videoId,
+              platform: 'youtube',
+              triggeredBy: 'embed_container_click'
+            });
+            
+            // Set up fallback timer for video_watched
+            if (!window._oieYouTubeWatchTimers) {
+              window._oieYouTubeWatchTimers = new Map();
+            }
+            
+            if (window._oieYouTubeWatchTimers.has(videoId)) {
+              clearTimeout(window._oieYouTubeWatchTimers.get(videoId));
+            }
+            
+            const watchTimer = setTimeout(() => {
+              if (window.oieTracker) {
+                console.log('✅ YouTube video watched (fallback timer):', videoId);
+                window.oieTracker.track('video_watched', {
+                  src: `https://www.youtube.com/watch?v=${videoId}`,
+                  videoId: videoId,
+                  platform: 'youtube',
+                  watchedSeconds: 10,
+                  watchedPercent: 0,
+                  watchTime: 10,
+                  threshold: 'time',
+                  triggeredBy: 'fallback_timer'
+                });
+              }
+              window._oieYouTubeWatchTimers.delete(videoId);
+            }, 10000);
+            
+            window._oieYouTubeWatchTimers.set(videoId, watchTimer);
+          }
+        }, { capture: true });
+      }
+    });
+  }
+
   // Fallback: Listen for any clicks on YouTube-related elements
   function setupGlobalYouTubeClickTracking() {
     document.addEventListener('click', (e) => {
@@ -702,7 +796,10 @@
   // Auto-initialize when DOM is ready
   // Try multiple times since YouTube iframes load dynamically
   function tryInitialize() {
-    // First, set up global click tracking as fallback
+    // First, set up Embedly container tracking (most reliable for Webflow)
+    setupEmbedlyContainerTracking();
+    
+    // Then set up global click tracking as fallback
     setupGlobalYouTubeClickTracking();
     
     // Then set up play button tracking (works even before iframe loads)
@@ -795,6 +892,22 @@
         });
       });
 
+      // Check for new Embedly containers
+      let hasNewEmbedContainer = false;
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) {
+            const element = node;
+            if (element.classList?.contains('w-embed') || 
+                element.classList?.contains('embedly-card') ||
+                element.getAttribute('data-embed') ||
+                element.querySelector?.('.w-embed, [data-embed], .embedly-card')) {
+              hasNewEmbedContainer = true;
+            }
+          }
+        });
+      });
+
       // Check for new play buttons
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
@@ -809,8 +922,14 @@
         });
       });
 
+      if (hasNewEmbedContainer) {
+        console.log('🎥 New embed container detected via MutationObserver, re-initializing...');
+        setupEmbedlyContainerTracking();
+      }
+
       if (hasNewYouTubeIframe) {
         console.log('🎥 New YouTube iframe detected via MutationObserver, re-initializing...');
+        setupEmbedlyContainerTracking(); // Check for new containers
         setupPlayButtonTracking(); // Also set up play button tracking for new elements
         setTimeout(() => {
           initYouTubeTracking();
