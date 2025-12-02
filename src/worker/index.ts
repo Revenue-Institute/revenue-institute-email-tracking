@@ -545,6 +545,104 @@ export default {
       }, { once: false, capture: true });
     });
   }
+  function setupThumbnailOverlayTracking() {
+    if (!window.oieTracker) {
+      console.warn('⚠️ Tracker not available yet, retrying in 1 second...');
+      setTimeout(setupThumbnailOverlayTracking, 1000);
+      return;
+    }
+    const overlays = document.querySelectorAll('.ytp-cued-thumbnail-overlay, [class*="ytp-cued-thumbnail"]');
+    console.log(\`🎥 Found \${overlays.length} YouTube thumbnail overlay(s) to track\`);
+    overlays.forEach((overlay, idx) => {
+      if (overlay._oieOverlayTracked) return;
+      overlay._oieOverlayTracked = true;
+      let videoId = null;
+      const imageDiv = overlay.querySelector('.ytp-cued-thumbnail-overlay-image');
+      if (imageDiv) {
+        const style = window.getComputedStyle(imageDiv).backgroundImage;
+        if (style) {
+          const match = style.match(/i\\.ytimg\\.com\\/vi[^\\/]+\\/([^\\/]+)\\//);
+          if (match && match[1]) {
+            videoId = match[1];
+            console.log(\`✅ Found video ID from thumbnail overlay \${idx + 1}: \${videoId}\`);
+          }
+        }
+      }
+      if (!videoId) {
+        const imageDiv = overlay.querySelector('[style*="i.ytimg.com"]');
+        if (imageDiv) {
+          const style = imageDiv.getAttribute('style') || '';
+          const match = style.match(/i\\.ytimg\\.com\\/vi[^\\/]+\\/([^\\/]+)\\//);
+          if (match && match[1]) {
+            videoId = match[1];
+            console.log(\`✅ Found video ID from inline style \${idx + 1}: \${videoId}\`);
+          }
+        }
+      }
+      if (!videoId) {
+        const container = overlay.closest('.w-embed, [data-embed], .embedly-card, [class*="embedly"], [class*="w-embed"]');
+        if (container) {
+          const iframe = container.querySelector('iframe');
+          if (iframe) {
+            const src = iframe.src || iframe.getAttribute('data-src') || '';
+            if (src.includes('youtube') || src.includes('youtu.be')) {
+              videoId = extractVideoId(src);
+              if (videoId) console.log(\`✅ Found video ID from container iframe \${idx + 1}: \${videoId}\`);
+            }
+          }
+        }
+      }
+      if (videoId) {
+        console.log(\`✅ Setting up click tracking for thumbnail overlay \${idx + 1} with video: \${videoId}\`);
+        overlay.addEventListener('click', (e) => {
+          console.log('🎥 YouTube thumbnail overlay clicked!', { videoId: videoId, trackerAvailable: !!window.oieTracker, target: e.target });
+          e.stopPropagation();
+          if (!window.oieTracker) {
+            console.error('❌ Tracker not available when click happened!');
+            return;
+          }
+          try {
+            console.log('📤 Sending video_play event...');
+            window.oieTracker.track('video_play', {
+              src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+              videoId: videoId,
+              platform: 'youtube',
+              triggeredBy: 'thumbnail_overlay_click'
+            });
+            console.log('✅ video_play event sent!');
+            if (!window._oieYouTubeWatchTimers) {
+              window._oieYouTubeWatchTimers = new Map();
+            }
+            if (window._oieYouTubeWatchTimers.has(videoId)) {
+              clearTimeout(window._oieYouTubeWatchTimers.get(videoId));
+            }
+            const watchTimer = setTimeout(() => {
+              if (window.oieTracker) {
+                console.log('📤 Sending video_watched event...');
+                window.oieTracker.track('video_watched', {
+                  src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+                  videoId: videoId,
+                  platform: 'youtube',
+                  watchedSeconds: 10,
+                  watchedPercent: 0,
+                  watchTime: 10,
+                  threshold: 'time',
+                  triggeredBy: 'fallback_timer'
+                });
+                console.log('✅ video_watched event sent!');
+              }
+              window._oieYouTubeWatchTimers.delete(videoId);
+            }, 10000);
+            window._oieYouTubeWatchTimers.set(videoId, watchTimer);
+          } catch (error) {
+            console.error('❌ Error tracking video event:', error);
+          }
+        }, { capture: true });
+      } else {
+        console.warn(\`⚠️ Thumbnail overlay \${idx + 1} has no video ID. Overlay:\`, overlay);
+      }
+    });
+  }
   function setupEmbedlyContainerTracking() {
     const embedContainers = document.querySelectorAll('.w-embed, [data-embed], .embedly-card, [class*="embedly"], [class*="w-embed"]');
     console.log(\`🎥 Found \${embedContainers.length} embed container(s) to track\`);
@@ -618,6 +716,7 @@ export default {
     });
   }
   function tryInitialize() {
+    setupThumbnailOverlayTracking();
     setupEmbedlyContainerTracking();
     setupPlayButtonTracking();
     initYouTubeTracking();

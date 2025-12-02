@@ -610,6 +610,133 @@
     });
   }
 
+  // Track clicks on YouTube thumbnail overlays (ytp-cued-thumbnail-overlay)
+  function setupThumbnailOverlayTracking() {
+    if (!window.oieTracker) {
+      console.warn('⚠️ Tracker not available yet, retrying in 1 second...');
+      setTimeout(setupThumbnailOverlayTracking, 1000);
+      return;
+    }
+    
+    // Find all YouTube thumbnail overlays
+    const overlays = document.querySelectorAll('.ytp-cued-thumbnail-overlay, [class*="ytp-cued-thumbnail"]');
+    console.log(`🎥 Found ${overlays.length} YouTube thumbnail overlay(s) to track`);
+    
+    overlays.forEach((overlay, idx) => {
+      if (overlay._oieOverlayTracked) return;
+      overlay._oieOverlayTracked = true;
+      
+      // Extract video ID from background-image URL
+      let videoId = null;
+      
+      // Method 1: Check the overlay-image div's background-image style
+      const imageDiv = overlay.querySelector('.ytp-cued-thumbnail-overlay-image');
+      if (imageDiv) {
+        const style = window.getComputedStyle(imageDiv).backgroundImage;
+        if (style) {
+          // Extract from: url("https://i.ytimg.com/vi_webp/DzYp5uqixz0/maxresdefault.webp")
+          const match = style.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
+          if (match && match[1]) {
+            videoId = match[1];
+            console.log(`✅ Found video ID from thumbnail overlay ${idx + 1}: ${videoId}`);
+          }
+        }
+      }
+      
+      // Method 2: Check inline style attribute
+      if (!videoId) {
+        const imageDiv = overlay.querySelector('[style*="i.ytimg.com"]');
+        if (imageDiv) {
+          const style = imageDiv.getAttribute('style') || '';
+          const match = style.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
+          if (match && match[1]) {
+            videoId = match[1];
+            console.log(`✅ Found video ID from inline style ${idx + 1}: ${videoId}`);
+          }
+        }
+      }
+      
+      // Method 3: Check parent container for iframe
+      if (!videoId) {
+        const container = overlay.closest('.w-embed, [data-embed], .embedly-card, [class*="embedly"], [class*="w-embed"]');
+        if (container) {
+          const iframe = container.querySelector('iframe');
+          if (iframe) {
+            const src = iframe.src || iframe.getAttribute('data-src') || '';
+            if (src.includes('youtube') || src.includes('youtu.be')) {
+              videoId = extractVideoId(src);
+              if (videoId) console.log(`✅ Found video ID from container iframe ${idx + 1}: ${videoId}`);
+            }
+          }
+        }
+      }
+      
+      if (videoId) {
+        console.log(`✅ Setting up click tracking for thumbnail overlay ${idx + 1} with video: ${videoId}`);
+        
+        // Track clicks anywhere on the overlay
+        overlay.addEventListener('click', (e) => {
+          console.log('🎥 YouTube thumbnail overlay clicked!', {
+            videoId: videoId,
+            trackerAvailable: !!window.oieTracker,
+            target: e.target
+          });
+          e.stopPropagation();
+          
+          if (!window.oieTracker) {
+            console.error('❌ Tracker not available when click happened!');
+            return;
+          }
+          
+          try {
+            // Track video_play event
+            console.log('📤 Sending video_play event...');
+            window.oieTracker.track('video_play', {
+              src: `https://www.youtube.com/watch?v=${videoId}`,
+              videoId: videoId,
+              platform: 'youtube',
+              triggeredBy: 'thumbnail_overlay_click'
+            });
+            console.log('✅ video_play event sent!');
+            
+            // Set up fallback timer for video_watched
+            if (!window._oieYouTubeWatchTimers) {
+              window._oieYouTubeWatchTimers = new Map();
+            }
+            
+            if (window._oieYouTubeWatchTimers.has(videoId)) {
+              clearTimeout(window._oieYouTubeWatchTimers.get(videoId));
+            }
+            
+            const watchTimer = setTimeout(() => {
+              if (window.oieTracker) {
+                console.log('📤 Sending video_watched event...');
+                window.oieTracker.track('video_watched', {
+                  src: `https://www.youtube.com/watch?v=${videoId}`,
+                  videoId: videoId,
+                  platform: 'youtube',
+                  watchedSeconds: 10,
+                  watchedPercent: 0,
+                  watchTime: 10,
+                  threshold: 'time',
+                  triggeredBy: 'fallback_timer'
+                });
+                console.log('✅ video_watched event sent!');
+              }
+              window._oieYouTubeWatchTimers.delete(videoId);
+            }, 10000);
+            
+            window._oieYouTubeWatchTimers.set(videoId, watchTimer);
+          } catch (error) {
+            console.error('❌ Error tracking video event:', error);
+          }
+        }, { capture: true });
+      } else {
+        console.warn(`⚠️ Thumbnail overlay ${idx + 1} has no video ID. Overlay:`, overlay);
+      }
+    });
+  }
+
   // Track clicks on Embedly containers (Webflow uses these for YouTube embeds)
   function setupEmbedlyContainerTracking() {
     // Wait for tracker to be available
@@ -829,7 +956,10 @@
   // Auto-initialize when DOM is ready
   // Try multiple times since YouTube iframes load dynamically
   function tryInitialize() {
-    // First, set up Embedly container tracking (most reliable for Webflow)
+    // First, set up thumbnail overlay tracking (catches YouTube play buttons)
+    setupThumbnailOverlayTracking();
+    
+    // Then set up Embedly container tracking (most reliable for Webflow)
     setupEmbedlyContainerTracking();
     
     // Then set up global click tracking as fallback
@@ -843,6 +973,8 @@
     
     // Try again after delays (for dynamically loaded iframes)
     setTimeout(() => {
+      setupThumbnailOverlayTracking();
+      setupEmbedlyContainerTracking();
       setupPlayButtonTracking(); // Re-check for new buttons
       const videos = findYouTubeIframes();
       if (videos.length > 0 && trackedVideos.size === 0) {
@@ -852,6 +984,8 @@
     }, 2000);
     
     setTimeout(() => {
+      setupThumbnailOverlayTracking();
+      setupEmbedlyContainerTracking();
       setupPlayButtonTracking(); // Re-check again
       const videos = findYouTubeIframes();
       if (videos.length > 0 && trackedVideos.size === 0) {
@@ -862,6 +996,8 @@
     
     // Final retry after 10 seconds
     setTimeout(() => {
+      setupThumbnailOverlayTracking();
+      setupEmbedlyContainerTracking();
       setupPlayButtonTracking();
       initYouTubeTracking();
     }, 10000);
@@ -925,12 +1061,17 @@
         });
       });
 
-      // Check for new Embedly containers
+      // Check for new thumbnail overlays
+      let hasNewThumbnailOverlay = false;
       let hasNewEmbedContainer = false;
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === 1) {
             const element = node;
+            if (element.classList?.contains('ytp-cued-thumbnail-overlay') ||
+                element.querySelector?.('.ytp-cued-thumbnail-overlay')) {
+              hasNewThumbnailOverlay = true;
+            }
             if (element.classList?.contains('w-embed') || 
                 element.classList?.contains('embedly-card') ||
                 element.getAttribute('data-embed') ||
@@ -940,6 +1081,11 @@
           }
         });
       });
+      
+      if (hasNewThumbnailOverlay) {
+        console.log('🎥 New thumbnail overlay detected via MutationObserver, re-initializing...');
+        setupThumbnailOverlayTracking();
+      }
 
       // Check for new play buttons
       mutations.forEach((mutation) => {
