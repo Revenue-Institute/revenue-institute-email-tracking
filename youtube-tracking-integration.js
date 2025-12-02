@@ -421,58 +421,229 @@
   // Track YouTube play button clicks as fallback (before iframe loads)
   function setupPlayButtonTracking() {
     // Find YouTube play buttons (ytp-large-play-button)
-    const playButtons = document.querySelectorAll('.ytp-large-play-button, [class*="ytp-play-button"], [class*="ytp-cued-thumbnail"]');
-    playButtons.forEach((button) => {
+    const playButtons = document.querySelectorAll('.ytp-large-play-button, [class*="ytp-play-button"], [class*="ytp-cued-thumbnail"], .ytp-cued-thumbnail-overlay');
+    console.log(`🎥 Found ${playButtons.length} YouTube play button(s) to track`);
+    
+    playButtons.forEach((button, index) => {
       if (button._oiePlayButtonTracked) return;
       button._oiePlayButtonTracked = true;
       
-      button.addEventListener('click', () => {
-        // Try to find the video ID from nearby elements
-        const container = button.closest('[class*="ytp"], [data-video-id], iframe, [class*="embedly"]');
-        let videoId = null;
+      button.addEventListener('click', (e) => {
+        console.log('🎥 YouTube play button clicked!', button);
+        e.stopPropagation(); // Prevent event bubbling
         
-        // Check for data attributes
+        // Try to find the video ID from nearby elements
+        let videoId = null;
+        const container = button.closest('[class*="ytp"], [data-video-id], iframe, [class*="embedly"], [class*="w-embed"]') || 
+                        button.parentElement || 
+                        document.body;
+        
+        // Method 1: Check for data attributes
         if (container) {
           videoId = container.getAttribute('data-video-id') || 
                    container.getAttribute('data-youtube-id') ||
-                   container.getAttribute('data-video');
+                   container.getAttribute('data-video') ||
+                   container.getAttribute('data-embed-id');
         }
         
-        // Try to extract from iframe src if available
+        // Method 2: Try to extract from iframe src if available (check all iframes)
         if (!videoId) {
-          const iframe = container?.querySelector('iframe') || 
-                        document.querySelector('iframe[src*="youtube"], iframe[data-src*="youtube"]');
-          if (iframe) {
-            const src = iframe.src || iframe.getAttribute('data-src') || '';
-            videoId = extractVideoId(src);
+          const allIframes = document.querySelectorAll('iframe');
+          for (const iframe of allIframes) {
+            const src = iframe.src || iframe.getAttribute('data-src') || iframe.getAttribute('src') || '';
+            if (src.includes('youtube') || src.includes('youtu.be')) {
+              videoId = extractVideoId(src);
+              if (videoId) {
+                console.log('🎥 Found video ID from iframe:', videoId);
+                break;
+              }
+            }
           }
         }
         
-        // Try to extract from page URL or meta tags
+        // Method 3: Try to extract from YouTube thumbnail image URLs (i.ytimg.com/vi_webp/VIDEO_ID/...)
+        if (!videoId) {
+          // Search in container first
+          const thumbnailImages = container?.querySelectorAll('img[src*="i.ytimg.com"], [style*="i.ytimg.com"]') || [];
+          for (const img of thumbnailImages) {
+            const src = img.src || img.getAttribute('style') || '';
+            const match = src.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
+            if (match && match[1]) {
+              videoId = match[1];
+              console.log('🎥 Found video ID from thumbnail image:', videoId);
+              break;
+            }
+          }
+          
+          // If not found, search entire document
+          if (!videoId) {
+            const allThumbnails = document.querySelectorAll('img[src*="i.ytimg.com"], [style*="i.ytimg.com"]');
+            for (const img of allThumbnails) {
+              const src = img.src || img.getAttribute('style') || '';
+              const match = src.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
+              if (match && match[1]) {
+                videoId = match[1];
+                console.log('🎥 Found video ID from thumbnail (document-wide):', videoId);
+                break;
+              }
+            }
+          }
+        }
+        
+        // Method 4: Check background-image styles (container and all parents)
+        if (!videoId) {
+          let element = container;
+          while (element && element !== document.body) {
+            const style = window.getComputedStyle(element).backgroundImage;
+            if (style) {
+              const match = style.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
+              if (match && match[1]) {
+                videoId = match[1];
+                console.log('🎥 Found video ID from background-image:', videoId);
+                break;
+              }
+            }
+            element = element.parentElement;
+          }
+        }
+        
+        // Method 5: Try to extract from page URL or meta tags
         if (!videoId) {
           const metaVideoId = document.querySelector('meta[property="og:video"]')?.content ||
-                             document.querySelector('meta[name="twitter:player"]')?.content;
+                             document.querySelector('meta[name="twitter:player"]')?.content ||
+                             document.querySelector('meta[property="og:video:url"]')?.content;
           if (metaVideoId) {
             videoId = extractVideoId(metaVideoId);
+            if (videoId) console.log('🎥 Found video ID from meta tag:', videoId);
           }
         }
         
-        // Try to extract from any YouTube URL on the page
+        // Method 6: Try to extract from any YouTube URL on the page
         if (!videoId) {
           const youtubeLinks = document.querySelectorAll('a[href*="youtube.com"], a[href*="youtu.be"]');
           for (const link of youtubeLinks) {
             const href = link.getAttribute('href');
             if (href) {
               videoId = extractVideoId(href);
+              if (videoId) {
+                console.log('🎥 Found video ID from link:', videoId);
+                break;
+              }
+            }
+          }
+        }
+        
+        // Method 7: Try to extract from the iframe's parent container's attributes or text content
+        if (!videoId) {
+          // Look for video ID pattern in nearby text or attributes
+          const nearbyText = container?.textContent || '';
+          const videoIdMatch = nearbyText.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/);
+          if (videoIdMatch && videoIdMatch[1]) {
+            videoId = videoIdMatch[1];
+            console.log('🎥 Found video ID from text content:', videoId);
+          }
+        }
+        
+        // Method 8: Check if the iframe src contains the video ID pattern directly
+        if (!videoId) {
+          const allIframes = document.querySelectorAll('iframe');
+          for (const iframe of allIframes) {
+            const src = iframe.src || iframe.getAttribute('data-src') || '';
+            // Look for pattern like: DzYp5uqixz0?wmode=opaque
+            const directMatch = src.match(/([a-zA-Z0-9_-]{11})(?:\?|$)/);
+            if (directMatch && directMatch[1]) {
+              videoId = directMatch[1];
+              console.log('🎥 Found video ID from iframe src pattern:', videoId);
+              break;
+            }
+          }
+        }
+        
+        if (videoId && window.oieTracker) {
+          console.log('✅ YouTube play button clicked, tracking video:', videoId);
+          const playTime = Date.now();
+          
+          // Track video_play event
+          window.oieTracker.track('video_play', {
+            src: `https://www.youtube.com/watch?v=${videoId}`,
+            videoId: videoId,
+            platform: 'youtube',
+            triggeredBy: 'play_button_click'
+          });
+          
+          // Fallback: Track video_watched after 10 seconds (works even without YouTube API)
+          // This ensures we get at least one "watched" event even if the API doesn't load
+          if (!window._oieYouTubeWatchTimers) {
+            window._oieYouTubeWatchTimers = new Map();
+          }
+          
+          // Clear any existing timer for this video
+          if (window._oieYouTubeWatchTimers.has(videoId)) {
+            clearTimeout(window._oieYouTubeWatchTimers.get(videoId));
+          }
+          
+          // Set timer to fire video_watched after 10 seconds
+          const watchTimer = setTimeout(() => {
+            if (window.oieTracker) {
+              console.log('✅ YouTube video watched (fallback timer):', videoId);
+              window.oieTracker.track('video_watched', {
+                src: `https://www.youtube.com/watch?v=${videoId}`,
+                videoId: videoId,
+                platform: 'youtube',
+                watchedSeconds: 10,
+                watchedPercent: 0, // Unknown without API
+                watchTime: 10, // seconds since play started
+                threshold: 'time',
+                triggeredBy: 'fallback_timer'
+              });
+            }
+            window._oieYouTubeWatchTimers.delete(videoId);
+          }, 10000); // 10 seconds
+          
+          window._oieYouTubeWatchTimers.set(videoId, watchTimer);
+        } else {
+          console.warn('⚠️ YouTube play button clicked but video ID not found. Container:', container);
+          console.warn('⚠️ Available iframes:', document.querySelectorAll('iframe').length);
+          console.warn('⚠️ Tracker available:', !!window.oieTracker);
+        }
+      }, { once: false, capture: true }); // Use capture phase and allow multiple clicks
+    });
+  }
+
+  // Fallback: Listen for any clicks on YouTube-related elements
+  function setupGlobalYouTubeClickTracking() {
+    document.addEventListener('click', (e) => {
+      const target = e.target;
+      // Check if clicked element is YouTube-related
+      const isYouTubeRelated = target.closest('[class*="ytp"], [class*="youtube"], [data-video-id], iframe[src*="youtube"], iframe[data-src*="youtube"], [class*="embedly"], [class*="w-embed"]');
+      
+      if (isYouTubeRelated) {
+        // Try to extract video ID from the clicked element or nearby
+        let videoId = null;
+        const container = target.closest('[class*="ytp"], [class*="youtube"], [data-video-id], iframe, [class*="embedly"], [class*="w-embed"]') || document.body;
+        
+        // Try all extraction methods
+        if (container) {
+          videoId = container.getAttribute('data-video-id') || 
+                   container.getAttribute('data-youtube-id') ||
+                   container.getAttribute('data-video') ||
+                   container.getAttribute('data-embed-id');
+        }
+        
+        if (!videoId) {
+          const allIframes = document.querySelectorAll('iframe');
+          for (const iframe of allIframes) {
+            const src = iframe.src || iframe.getAttribute('data-src') || '';
+            if (src.includes('youtube') || src.includes('youtu.be')) {
+              videoId = extractVideoId(src);
               if (videoId) break;
             }
           }
         }
         
-        // Try to extract from YouTube thumbnail image URLs (i.ytimg.com/vi_webp/VIDEO_ID/...)
         if (!videoId) {
-          const thumbnailImages = container?.querySelectorAll('img[src*="i.ytimg.com"], [style*="i.ytimg.com"]') || [];
-          for (const img of thumbnailImages) {
+          const allThumbnails = document.querySelectorAll('img[src*="i.ytimg.com"], [style*="i.ytimg.com"]');
+          for (const img of allThumbnails) {
             const src = img.src || img.getAttribute('style') || '';
             const match = src.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
             if (match && match[1]) {
@@ -482,36 +653,59 @@
           }
         }
         
-        // Also check background-image styles
-        if (!videoId && container) {
-          const style = window.getComputedStyle(container).backgroundImage;
-          if (style) {
-            const match = style.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
-            if (match && match[1]) {
-              videoId = match[1];
-            }
-          }
-        }
-        
         if (videoId && window.oieTracker) {
-          console.log('🎥 YouTube play button clicked, tracking:', videoId);
+          console.log('🎥 YouTube-related element clicked, tracking video:', videoId);
+          const playTime = Date.now();
+          
+          // Track video_play event
           window.oieTracker.track('video_play', {
             src: `https://www.youtube.com/watch?v=${videoId}`,
             videoId: videoId,
             platform: 'youtube',
-            triggeredBy: 'play_button_click'
+            triggeredBy: 'element_click'
           });
-        } else {
-          console.log('🎥 YouTube play button clicked but video ID not found');
+          
+          // Fallback: Track video_watched after 10 seconds
+          if (!window._oieYouTubeWatchTimers) {
+            window._oieYouTubeWatchTimers = new Map();
+          }
+          
+          // Clear any existing timer for this video
+          if (window._oieYouTubeWatchTimers.has(videoId)) {
+            clearTimeout(window._oieYouTubeWatchTimers.get(videoId));
+          }
+          
+          // Set timer to fire video_watched after 10 seconds
+          const watchTimer = setTimeout(() => {
+            if (window.oieTracker) {
+              console.log('✅ YouTube video watched (fallback timer):', videoId);
+              window.oieTracker.track('video_watched', {
+                src: `https://www.youtube.com/watch?v=${videoId}`,
+                videoId: videoId,
+                platform: 'youtube',
+                watchedSeconds: 10,
+                watchedPercent: 0, // Unknown without API
+                watchTime: 10, // seconds since play started
+                threshold: 'time',
+                triggeredBy: 'fallback_timer'
+              });
+            }
+            window._oieYouTubeWatchTimers.delete(videoId);
+          }, 10000); // 10 seconds
+          
+          window._oieYouTubeWatchTimers.set(videoId, watchTimer);
         }
-      }, { once: false }); // Allow multiple clicks
-    });
+      }
+    }, { capture: true });
   }
 
   // Auto-initialize when DOM is ready
   // Try multiple times since YouTube iframes load dynamically
   function tryInitialize() {
-    // First, set up play button tracking (works even before iframe loads)
+    // First, set up global click tracking as fallback
+    setupGlobalYouTubeClickTracking();
+    
+    // Then set up play button tracking (works even before iframe loads)
     setupPlayButtonTracking();
     
     // Then try to initialize YouTube API tracking

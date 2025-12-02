@@ -393,33 +393,34 @@ export default {
     }
   }
   function setupPlayButtonTracking() {
-    const playButtons = document.querySelectorAll('.ytp-large-play-button, [class*="ytp-play-button"], [class*="ytp-cued-thumbnail"]');
-    playButtons.forEach((button) => {
+    const playButtons = document.querySelectorAll('.ytp-large-play-button, [class*="ytp-play-button"], [class*="ytp-cued-thumbnail"], .ytp-cued-thumbnail-overlay');
+    console.log(\`🎥 Found \${playButtons.length} YouTube play button(s) to track\`);
+    playButtons.forEach((button, index) => {
       if (button._oiePlayButtonTracked) return;
       button._oiePlayButtonTracked = true;
-      button.addEventListener('click', () => {
-        const container = button.closest('[class*="ytp"], [data-video-id], iframe, [class*="embedly"]');
+      button.addEventListener('click', (e) => {
+        console.log('🎥 YouTube play button clicked!', button);
+        e.stopPropagation();
         let videoId = null;
+        const container = button.closest('[class*="ytp"], [data-video-id], iframe, [class*="embedly"], [class*="w-embed"]') || 
+                        button.parentElement || 
+                        document.body;
         if (container) {
           videoId = container.getAttribute('data-video-id') || 
                    container.getAttribute('data-youtube-id') ||
-                   container.getAttribute('data-video');
+                   container.getAttribute('data-video') ||
+                   container.getAttribute('data-embed-id');
         }
         if (!videoId) {
-          const iframe = container?.querySelector('iframe') || 
-                        document.querySelector('iframe[src*="youtube"], iframe[data-src*="youtube"]');
-          if (iframe) {
-            const src = iframe.src || iframe.getAttribute('data-src') || '';
-            videoId = extractVideoId(src);
-          }
-        }
-        if (!videoId) {
-          const youtubeLinks = document.querySelectorAll('a[href*="youtube.com"], a[href*="youtu.be"]');
-          for (const link of youtubeLinks) {
-            const href = link.getAttribute('href');
-            if (href) {
-              videoId = extractVideoId(href);
-              if (videoId) break;
+          const allIframes = document.querySelectorAll('iframe');
+          for (const iframe of allIframes) {
+            const src = iframe.src || iframe.getAttribute('data-src') || iframe.getAttribute('src') || '';
+            if (src.includes('youtube') || src.includes('youtu.be')) {
+              videoId = extractVideoId(src);
+              if (videoId) {
+                console.log('🎥 Found video ID from iframe:', videoId);
+                break;
+              }
             }
           }
         }
@@ -430,29 +431,118 @@ export default {
             const match = src.match(/i\\.ytimg\\.com\\/vi[^\\/]+\\/([^\\/]+)\\//);
             if (match && match[1]) {
               videoId = match[1];
+              console.log('🎥 Found video ID from thumbnail image:', videoId);
+              break;
+            }
+          }
+          if (!videoId) {
+            const allThumbnails = document.querySelectorAll('img[src*="i.ytimg.com"], [style*="i.ytimg.com"]');
+            for (const img of allThumbnails) {
+              const src = img.src || img.getAttribute('style') || '';
+              const match = src.match(/i\\.ytimg\\.com\\/vi[^\\/]+\\/([^\\/]+)\\//);
+              if (match && match[1]) {
+                videoId = match[1];
+                console.log('🎥 Found video ID from thumbnail (document-wide):', videoId);
+                break;
+              }
+            }
+          }
+        }
+        if (!videoId) {
+          let element = container;
+          while (element && element !== document.body) {
+            const style = window.getComputedStyle(element).backgroundImage;
+            if (style) {
+              const match = style.match(/i\\.ytimg\\.com\\/vi[^\\/]+\\/([^\\/]+)\\//);
+              if (match && match[1]) {
+                videoId = match[1];
+                console.log('🎥 Found video ID from background-image:', videoId);
+                break;
+              }
+            }
+            element = element.parentElement;
+          }
+        }
+        if (!videoId) {
+          const metaVideoId = document.querySelector('meta[property="og:video"]')?.content ||
+                             document.querySelector('meta[name="twitter:player"]')?.content ||
+                             document.querySelector('meta[property="og:video:url"]')?.content;
+          if (metaVideoId) {
+            videoId = extractVideoId(metaVideoId);
+            if (videoId) console.log('🎥 Found video ID from meta tag:', videoId);
+          }
+        }
+        if (!videoId) {
+          const youtubeLinks = document.querySelectorAll('a[href*="youtube.com"], a[href*="youtu.be"]');
+          for (const link of youtubeLinks) {
+            const href = link.getAttribute('href');
+            if (href) {
+              videoId = extractVideoId(href);
+              if (videoId) {
+                console.log('🎥 Found video ID from link:', videoId);
+                break;
+              }
+            }
+          }
+        }
+        if (!videoId) {
+          const nearbyText = container?.textContent || '';
+          const videoIdMatch = nearbyText.match(/(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/|embed\\/)([a-zA-Z0-9_-]{11})/);
+          if (videoIdMatch && videoIdMatch[1]) {
+            videoId = videoIdMatch[1];
+            console.log('🎥 Found video ID from text content:', videoId);
+          }
+        }
+        if (!videoId) {
+          const allIframes = document.querySelectorAll('iframe');
+          for (const iframe of allIframes) {
+            const src = iframe.src || iframe.getAttribute('data-src') || '';
+            const directMatch = src.match(/([a-zA-Z0-9_-]{11})(?:\\?|$)/);
+            if (directMatch && directMatch[1]) {
+              videoId = directMatch[1];
+              console.log('🎥 Found video ID from iframe src pattern:', videoId);
               break;
             }
           }
         }
-        if (!videoId && container) {
-          const style = window.getComputedStyle(container).backgroundImage;
-          if (style) {
-            const match = style.match(/i\\.ytimg\\.com\\/vi[^\\/]+\\/([^\\/]+)\\//);
-            if (match && match[1]) {
-              videoId = match[1];
-            }
-          }
-        }
         if (videoId && window.oieTracker) {
-          console.log('🎥 YouTube play button clicked, tracking:', videoId);
+          console.log('✅ YouTube play button clicked, tracking video:', videoId);
+          const playTime = Date.now();
           window.oieTracker.track('video_play', {
             src: \`https://www.youtube.com/watch?v=\${videoId}\`,
             videoId: videoId,
             platform: 'youtube',
             triggeredBy: 'play_button_click'
           });
+          if (!window._oieYouTubeWatchTimers) {
+            window._oieYouTubeWatchTimers = new Map();
+          }
+          if (window._oieYouTubeWatchTimers.has(videoId)) {
+            clearTimeout(window._oieYouTubeWatchTimers.get(videoId));
+          }
+          const watchTimer = setTimeout(() => {
+            if (window.oieTracker) {
+              console.log('✅ YouTube video watched (fallback timer):', videoId);
+              window.oieTracker.track('video_watched', {
+                src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+                videoId: videoId,
+                platform: 'youtube',
+                watchedSeconds: 10,
+                watchedPercent: 0,
+                watchTime: 10,
+                threshold: 'time',
+                triggeredBy: 'fallback_timer'
+              });
+            }
+            window._oieYouTubeWatchTimers.delete(videoId);
+          }, 10000);
+          window._oieYouTubeWatchTimers.set(videoId, watchTimer);
+        } else {
+          console.warn('⚠️ YouTube play button clicked but video ID not found. Container:', container);
+          console.warn('⚠️ Available iframes:', document.querySelectorAll('iframe').length);
+          console.warn('⚠️ Tracker available:', !!window.oieTracker);
         }
-      }, { once: false });
+      }, { once: false, capture: true });
     });
   }
   function tryInitialize() {
