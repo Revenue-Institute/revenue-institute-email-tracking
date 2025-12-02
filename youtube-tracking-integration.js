@@ -612,13 +612,31 @@
 
   // Track clicks on Embedly containers (Webflow uses these for YouTube embeds)
   function setupEmbedlyContainerTracking() {
+    // Wait for tracker to be available
+    if (!window.oieTracker) {
+      console.warn('⚠️ Tracker not available yet, retrying in 1 second...');
+      setTimeout(setupEmbedlyContainerTracking, 1000);
+      return;
+    }
+    
     // Find all Embedly/Webflow embed containers
     const embedContainers = document.querySelectorAll('.w-embed, [data-embed], .embedly-card, [class*="embedly"], [class*="w-embed"]');
     console.log(`🎥 Found ${embedContainers.length} embed container(s) to track`);
     
-    embedContainers.forEach((container) => {
+    if (embedContainers.length === 0) {
+      console.warn('⚠️ No embed containers found. Checking for iframes...');
+      const allIframes = document.querySelectorAll('iframe');
+      console.log(`🎥 Found ${allIframes.length} total iframe(s) on page`);
+      allIframes.forEach((iframe, idx) => {
+        const src = iframe.src || iframe.getAttribute('data-src') || '';
+        console.log(`🎥 Iframe ${idx + 1}:`, src.substring(0, 100));
+      });
+    }
+    
+    embedContainers.forEach((container, idx) => {
       if (container._oieEmbedTracked) return;
       container._oieEmbedTracked = true;
+      console.log(`🎥 Setting up tracking for container ${idx + 1}:`, container.className, container);
       
       // Extract video ID from container
       let videoId = null;
@@ -655,21 +673,36 @@
       
       // If we found a video ID, set up click tracking
       if (videoId) {
-        console.log(`🎥 Setting up tracking for embed container with video: ${videoId}`);
+        console.log(`✅ Setting up tracking for embed container with video: ${videoId}`);
+        console.log(`✅ Tracker available:`, !!window.oieTracker);
+        console.log(`✅ Container element:`, container);
+        
         container.addEventListener('click', (e) => {
-          console.log('🎥 Embed container clicked, video:', videoId);
+          console.log('🎥 Embed container clicked!', {
+            videoId: videoId,
+            trackerAvailable: !!window.oieTracker,
+            target: e.target,
+            container: container
+          });
           e.stopPropagation();
           
-          if (window.oieTracker) {
+          if (!window.oieTracker) {
+            console.error('❌ Tracker not available when click happened!');
+            return;
+          }
+          
+          try {
             const playTime = Date.now();
             
             // Track video_play event
+            console.log('📤 Sending video_play event...');
             window.oieTracker.track('video_play', {
               src: `https://www.youtube.com/watch?v=${videoId}`,
               videoId: videoId,
               platform: 'youtube',
               triggeredBy: 'embed_container_click'
             });
+            console.log('✅ video_play event sent!');
             
             // Set up fallback timer for video_watched
             if (!window._oieYouTubeWatchTimers) {
@@ -947,6 +980,71 @@
 
   // Expose function globally for manual initialization
   window.initYouTubeTracking = initYouTubeTracking;
+  
+  // Manual test function - call this from console to test video tracking
+  window.testVideoTracking = function(videoId = 'DzYp5uqixz0') {
+    console.log('🧪 Testing video tracking with video ID:', videoId);
+    console.log('🧪 Tracker available:', !!window.oieTracker);
+    
+    if (!window.oieTracker) {
+      console.error('❌ Tracker not available! Make sure the pixel is loaded.');
+      return;
+    }
+    
+    console.log('📤 Sending test video_play event...');
+    window.oieTracker.track('video_play', {
+      src: `https://www.youtube.com/watch?v=${videoId}`,
+      videoId: videoId,
+      platform: 'youtube',
+      triggeredBy: 'manual_test'
+    });
+    console.log('✅ Test video_play event sent!');
+    
+    setTimeout(() => {
+      console.log('📤 Sending test video_watched event...');
+      window.oieTracker.track('video_watched', {
+        src: `https://www.youtube.com/watch?v=${videoId}`,
+        videoId: videoId,
+        platform: 'youtube',
+        watchedSeconds: 10,
+        watchedPercent: 0,
+        watchTime: 10,
+        threshold: 'time',
+        triggeredBy: 'manual_test'
+      });
+      console.log('✅ Test video_watched event sent!');
+    }, 2000);
+    
+    console.log('🧪 Test complete! Check BigQuery in 1-2 minutes.');
+  };
+  
+  // Debug function to check current state
+  window.debugVideoTracking = function() {
+    console.log('🔍 Video Tracking Debug Info:');
+    console.log('  Tracker available:', !!window.oieTracker);
+    console.log('  Tracker object:', window.oieTracker);
+    
+    const embedContainers = document.querySelectorAll('.w-embed, [data-embed], .embedly-card, [class*="embedly"], [class*="w-embed"]');
+    console.log('  Embed containers found:', embedContainers.length);
+    embedContainers.forEach((container, idx) => {
+      console.log(`  Container ${idx + 1}:`, {
+        className: container.className,
+        id: container.id,
+        tracked: container._oieEmbedTracked,
+        html: container.outerHTML.substring(0, 200)
+      });
+    });
+    
+    const allIframes = document.querySelectorAll('iframe');
+    console.log('  Total iframes:', allIframes.length);
+    allIframes.forEach((iframe, idx) => {
+      const src = iframe.src || iframe.getAttribute('data-src') || '';
+      console.log(`  Iframe ${idx + 1}:`, src.substring(0, 100));
+    });
+    
+    const playButtons = document.querySelectorAll('.ytp-large-play-button, [class*="ytp-play-button"]');
+    console.log('  Play buttons found:', playButtons.length);
+  };
 
 })();
 

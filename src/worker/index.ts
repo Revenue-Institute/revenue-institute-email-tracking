@@ -722,6 +722,60 @@ export default {
     });
   }
   window.initYouTubeTracking = initYouTubeTracking;
+  window.testVideoTracking = function(videoId = 'DzYp5uqixz0') {
+    console.log('🧪 Testing video tracking with video ID:', videoId);
+    console.log('🧪 Tracker available:', !!window.oieTracker);
+    if (!window.oieTracker) {
+      console.error('❌ Tracker not available! Make sure the pixel is loaded.');
+      return;
+    }
+    console.log('📤 Sending test video_play event...');
+    window.oieTracker.track('video_play', {
+      src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+      videoId: videoId,
+      platform: 'youtube',
+      triggeredBy: 'manual_test'
+    });
+    console.log('✅ Test video_play event sent!');
+    setTimeout(() => {
+      console.log('📤 Sending test video_watched event...');
+      window.oieTracker.track('video_watched', {
+        src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+        videoId: videoId,
+        platform: 'youtube',
+        watchedSeconds: 10,
+        watchedPercent: 0,
+        watchTime: 10,
+        threshold: 'time',
+        triggeredBy: 'manual_test'
+      });
+      console.log('✅ Test video_watched event sent!');
+    }, 2000);
+    console.log('🧪 Test complete! Check BigQuery in 1-2 minutes.');
+  };
+  window.debugVideoTracking = function() {
+    console.log('🔍 Video Tracking Debug Info:');
+    console.log('  Tracker available:', !!window.oieTracker);
+    console.log('  Tracker object:', window.oieTracker);
+    const embedContainers = document.querySelectorAll('.w-embed, [data-embed], .embedly-card, [class*="embedly"], [class*="w-embed"]');
+    console.log('  Embed containers found:', embedContainers.length);
+    embedContainers.forEach((container, idx) => {
+      console.log(\`  Container \${idx + 1}:\`, {
+        className: container.className,
+        id: container.id,
+        tracked: container._oieEmbedTracked,
+        html: container.outerHTML.substring(0, 200)
+      });
+    });
+    const allIframes = document.querySelectorAll('iframe');
+    console.log('  Total iframes:', allIframes.length);
+    allIframes.forEach((iframe, idx) => {
+      const src = iframe.src || iframe.getAttribute('data-src') || '';
+      console.log(\`  Iframe \${idx + 1}:\`, src.substring(0, 100));
+    });
+    const playButtons = document.querySelectorAll('.ytp-large-play-button, [class*="ytp-play-button"]');
+    console.log('  Play buttons found:', playButtons.length);
+  };
 })();`;
 
       return new Response(youtubeTrackingCode, {
