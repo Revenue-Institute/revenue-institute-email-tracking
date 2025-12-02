@@ -284,10 +284,11 @@ export default {
   function handleStateChange(event, videoId) {
     const player = event.target;
     const state = event.data;
+    const videoInfo = trackedVideos.get(videoId);
+    
     switch (state) {
       case YT.PlayerState.PLAYING:
         console.log('🎥 YouTube video play:', videoId);
-        const videoInfo = trackedVideos.get(videoId);
         if (videoInfo) {
           videoInfo.playStartTime = Date.now();
         }
@@ -300,7 +301,6 @@ export default {
         break;
       case YT.PlayerState.ENDED:
         console.log('🎥 YouTube video ended:', videoId);
-        const videoInfo = trackedVideos.get(videoId);
         if (videoInfo && !videoInfo.tracked100) {
           videoInfo.tracked100 = true;
           const duration = player.getDuration();
