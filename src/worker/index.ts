@@ -407,32 +407,64 @@ async function handleTrackEvents(request: Request, env: Env, ctx: ExecutionConte
   try {
     // Validate origin
     if (!isOriginAllowed(request, env)) {
-      return new Response('Forbidden', { status: 403 });
+      const origin = request.headers.get('Origin') || 'unknown';
+      console.error('❌ Origin not allowed:', origin);
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'Origin not allowed',
+        origin: origin
+      }), { 
+        status: 403,
+        headers: {
+          'Content-Type': 'application/json',
+          ...getCORSHeaders(request, env)
+        }
+      });
     }
 
     // Parse event batch
     const body = await request.json() as EventBatch;
     
     if (!body.events || !Array.isArray(body.events)) {
-      return new Response('Invalid payload', { status: 400 });
+      console.error('❌ Invalid payload: events is not an array');
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'Invalid payload: events must be an array' 
+      }), { 
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          ...getCORSHeaders(request, env)
+        }
+      });
     }
+
+    console.log('📥 Received', body.events.length, 'events. Types:', body.events.map(e => e.type).join(', '));
 
     // Enrich events with server-side data
     const enrichedEvents = body.events.map(event => enrichEvent(event, request));
 
     // Store events SYNCHRONOUSLY to see errors
+    let storeSuccess = false;
+    let storeError: string | null = null;
+    
     try {
       await storeEvents(enrichedEvents, env);
-      console.log('✅ Events stored successfully');
+      storeSuccess = true;
+      console.log('✅ Events stored successfully in BigQuery');
     } catch (error: any) {
+      storeSuccess = false;
+      storeError = error.message;
       console.error('❌ ERROR storing events:', error.message);
-      // Still return success to client, but log the error
+      console.error('❌ Error stack:', error.stack);
     }
 
-    // Return success
+    // Return response with storage status
     return new Response(JSON.stringify({ 
       success: true, 
-      eventsReceived: body.events.length 
+      eventsReceived: body.events.length,
+      eventsStored: storeSuccess,
+      error: storeError || undefined
     }), {
       status: 200,
       headers: {
@@ -440,9 +472,19 @@ async function handleTrackEvents(request: Request, env: Env, ctx: ExecutionConte
         ...getCORSHeaders(request, env)
       }
     });
-  } catch (error) {
-    console.error('Error handling events:', error);
-    return new Response('Internal Server Error', { status: 500 });
+  } catch (error: any) {
+    console.error('❌ Error handling events:', error);
+    console.error('❌ Error stack:', error.stack);
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: error.message || 'Internal Server Error' 
+    }), { 
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        ...getCORSHeaders(request, env)
+      }
+    });
   }
 }
 
