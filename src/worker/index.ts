@@ -1206,6 +1206,21 @@ function isOriginAllowed(request: Request, env: Env): boolean {
     return true;
   }
 
-  return allowedOrigins.some(allowed => origin === allowed.trim());
+  // Always allow Webflow canvas/preview domains (for testing in Webflow editor)
+  if (origin.includes('.canvas.webflow.com') || origin.includes('.preview.webflow.com')) {
+    return true;
+  }
+
+  // Check against explicitly allowed origins
+  return allowedOrigins.some(allowed => {
+    const trimmed = allowed.trim();
+    // Support wildcard patterns like *.example.com
+    if (trimmed.includes('*')) {
+      const pattern = trimmed.replace(/\*/g, '.*');
+      const regex = new RegExp(`^${pattern}$`);
+      return regex.test(origin);
+    }
+    return origin === trimmed;
+  });
 }
 
