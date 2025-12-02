@@ -80,6 +80,9 @@ class OutboundIntentTracker {
     // 8. Set up beacon on page unload
     this.setupUnloadBeacon();
 
+    // 9. Auto-load YouTube tracking integration
+    this.loadYouTubeTracking();
+
     this.log('Tracker initialized', { visitorId: this.visitorId, sessionId: this.sessionId });
   }
 
@@ -1063,6 +1066,41 @@ class OutboundIntentTracker {
       });
     } catch (e) {
       console.log('[OutboundIntentTracker] Iframe tracking not available');
+    }
+  }
+
+  // Auto-load YouTube tracking integration script
+  private loadYouTubeTracking(): void {
+    // Get the base URL from the endpoint config
+    const endpointUrl = new URL(this.config.endpoint);
+    const baseUrl = `${endpointUrl.protocol}//${endpointUrl.host}`;
+    const youtubeScriptUrl = `${baseUrl}/youtube-tracking-integration.js`;
+
+    // Check if script is already loaded
+    const existingScript = document.querySelector(`script[src="${youtubeScriptUrl}"]`);
+    if (existingScript) {
+      this.log('YouTube tracking script already loaded');
+      return;
+    }
+
+    // Load the YouTube tracking script
+    const script = document.createElement('script');
+    script.src = youtubeScriptUrl;
+    script.async = true;
+    script.onload = () => {
+      this.log('✅ YouTube tracking script loaded successfully');
+      // Script auto-initializes via tryInitialize() function
+    };
+    script.onerror = () => {
+      console.warn('[OutboundIntentTracker] Failed to load YouTube tracking script');
+    };
+
+    // Add to page
+    const firstScript = document.getElementsByTagName('script')[0];
+    if (firstScript && firstScript.parentNode) {
+      firstScript.parentNode.insertBefore(script, firstScript);
+    } else {
+      document.head.appendChild(script);
     }
   }
 

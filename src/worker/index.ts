@@ -65,6 +65,69 @@ export default {
       });
     }
 
+    if (url.pathname === '/test-video-event' && request.method === 'POST') {
+      // Manual test endpoint to insert a video event directly
+      // This bypasses client-side tracking to test BigQuery insertion
+      const authHeader = request.headers.get('Authorization');
+      if (authHeader !== `Bearer ${env.EVENT_SIGNING_SECRET}`) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+
+      try {
+        const testEvents = [{
+          type: 'video_play',
+          timestamp: Date.now(),
+          sessionId: `test-session-${Date.now()}`,
+          visitorId: 'test-visitor-manual-endpoint',
+          url: 'https://test.example.com/video',
+          referrer: 'https://test.example.com',
+          data: {
+            src: 'https://www.youtube.com/watch?v=DzYp5uqixz0',
+            videoId: 'DzYp5uqixz0',
+            platform: 'youtube',
+            triggeredBy: 'manual_endpoint_test'
+          }
+        }, {
+          type: 'video_watched',
+          timestamp: Date.now(),
+          sessionId: `test-session-${Date.now()}`,
+          visitorId: 'test-visitor-manual-endpoint',
+          url: 'https://test.example.com/video',
+          referrer: 'https://test.example.com',
+          data: {
+            src: 'https://www.youtube.com/watch?v=DzYp5uqixz0',
+            videoId: 'DzYp5uqixz0',
+            platform: 'youtube',
+            watchedSeconds: 10,
+            watchedPercent: 0,
+            watchTime: 10,
+            threshold: 'time',
+            triggeredBy: 'manual_endpoint_test'
+          }
+        }];
+
+        const enrichedEvents = testEvents.map(event => enrichEvent(event, request));
+        await storeEvents(enrichedEvents, env);
+
+        return new Response(JSON.stringify({ 
+          success: true, 
+          message: 'Test video events inserted',
+          events: testEvents.map(e => e.type),
+          timestamp: new Date().toISOString()
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error: any) {
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: error.message 
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     if (url.pathname === '/sync-kv-now' && request.method === 'POST') {
       // Manual/webhook trigger for KV sync
       // Can be called from anywhere to immediately sync new leads
@@ -508,10 +571,23 @@ export default {
         if (videoId && window.oieTracker) {
           console.log('✅ YouTube play button clicked, tracking video:', videoId);
           const playTime = Date.now();
+          // Track video_play event immediately
           window.oieTracker.track('video_play', {
             src: \`https://www.youtube.com/watch?v=\${videoId}\`,
             videoId: videoId,
             platform: 'youtube',
+            triggeredBy: 'play_button_click'
+          });
+          // Also track video_watched immediately (clicking = intent to watch)
+          console.log('✅ Tracking video_watched immediately on click');
+          window.oieTracker.track('video_watched', {
+            src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+            videoId: videoId,
+            platform: 'youtube',
+            watchedSeconds: 0,
+            watchedPercent: 0,
+            watchTime: 0,
+            threshold: 'immediate_click',
             triggeredBy: 'play_button_click'
           });
           if (!window._oieYouTubeWatchTimers) {
@@ -610,6 +686,19 @@ export default {
               triggeredBy: 'thumbnail_overlay_click'
             });
             console.log('✅ video_play event sent!');
+            // Also trigger video_watched immediately on click
+            console.log('📤 Sending video_watched event immediately...');
+            window.oieTracker.track('video_watched', {
+              src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+              videoId: videoId,
+              platform: 'youtube',
+              watchedSeconds: 0,
+              watchedPercent: 0,
+              watchTime: 0,
+              threshold: 'immediate_click',
+              triggeredBy: 'thumbnail_overlay_click'
+            });
+            console.log('✅ video_watched event sent immediately!');
             if (!window._oieYouTubeWatchTimers) {
               window._oieYouTubeWatchTimers = new Map();
             }
@@ -618,7 +707,7 @@ export default {
             }
             const watchTimer = setTimeout(() => {
               if (window.oieTracker) {
-                console.log('📤 Sending video_watched event...');
+                console.log('📤 Sending video_watched event (10s timer)...');
                 window.oieTracker.track('video_watched', {
                   src: \`https://www.youtube.com/watch?v=\${videoId}\`,
                   videoId: videoId,
@@ -681,10 +770,23 @@ export default {
           e.stopPropagation();
           if (window.oieTracker) {
             const playTime = Date.now();
+            // Track video_play event immediately
             window.oieTracker.track('video_play', {
               src: \`https://www.youtube.com/watch?v=\${videoId}\`,
               videoId: videoId,
               platform: 'youtube',
+              triggeredBy: 'embed_container_click'
+            });
+            // Also trigger video_watched immediately on click
+            console.log('✅ Tracking video_watched immediately on click');
+            window.oieTracker.track('video_watched', {
+              src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+              videoId: videoId,
+              platform: 'youtube',
+              watchedSeconds: 0,
+              watchedPercent: 0,
+              watchTime: 0,
+              threshold: 'immediate_click',
               triggeredBy: 'embed_container_click'
             });
             if (!window._oieYouTubeWatchTimers) {

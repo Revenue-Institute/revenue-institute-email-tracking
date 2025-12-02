@@ -563,11 +563,24 @@
           console.log('✅ YouTube play button clicked, tracking video:', videoId);
           const playTime = Date.now();
           
-          // Track video_play event
+          // Track video_play event immediately
           window.oieTracker.track('video_play', {
             src: `https://www.youtube.com/watch?v=${videoId}`,
             videoId: videoId,
             platform: 'youtube',
+            triggeredBy: 'play_button_click'
+          });
+          
+          // Also trigger video_watched immediately on click (clicking = intent to watch)
+          console.log('✅ Tracking video_watched immediately on click');
+          window.oieTracker.track('video_watched', {
+            src: `https://www.youtube.com/watch?v=${videoId}`,
+            videoId: videoId,
+            platform: 'youtube',
+            watchedSeconds: 0,
+            watchedPercent: 0,
+            watchTime: 0,
+            threshold: 'immediate_click',
             triggeredBy: 'play_button_click'
           });
           
@@ -582,7 +595,7 @@
             clearTimeout(window._oieYouTubeWatchTimers.get(videoId));
           }
           
-          // Set timer to fire video_watched after 10 seconds
+          // Set timer to fire video_watched after 10 seconds (as confirmation)
           const watchTimer = setTimeout(() => {
             if (window.oieTracker) {
               console.log('✅ YouTube video watched (fallback timer):', videoId);
@@ -699,7 +712,21 @@
             });
             console.log('✅ video_play event sent!');
             
-            // Set up fallback timer for video_watched
+            // Also trigger video_watched immediately on click
+            console.log('📤 Sending video_watched event immediately...');
+            window.oieTracker.track('video_watched', {
+              src: `https://www.youtube.com/watch?v=${videoId}`,
+              videoId: videoId,
+              platform: 'youtube',
+              watchedSeconds: 0,
+              watchedPercent: 0,
+              watchTime: 0,
+              threshold: 'immediate_click',
+              triggeredBy: 'thumbnail_overlay_click'
+            });
+            console.log('✅ video_watched event sent immediately!');
+            
+            // Set up fallback timer for video_watched (10s confirmation)
             if (!window._oieYouTubeWatchTimers) {
               window._oieYouTubeWatchTimers = new Map();
             }
@@ -710,7 +737,7 @@
             
             const watchTimer = setTimeout(() => {
               if (window.oieTracker) {
-                console.log('📤 Sending video_watched event...');
+                console.log('📤 Sending video_watched event (10s timer)...');
                 window.oieTracker.track('video_watched', {
                   src: `https://www.youtube.com/watch?v=${videoId}`,
                   videoId: videoId,
@@ -831,7 +858,20 @@
             });
             console.log('✅ video_play event sent!');
             
-            // Set up fallback timer for video_watched
+            // Also trigger video_watched immediately on click
+            console.log('✅ Tracking video_watched immediately on click');
+            window.oieTracker.track('video_watched', {
+              src: `https://www.youtube.com/watch?v=${videoId}`,
+              videoId: videoId,
+              platform: 'youtube',
+              watchedSeconds: 0,
+              watchedPercent: 0,
+              watchTime: 0,
+              threshold: 'immediate_click',
+              triggeredBy: 'embed_container_click'
+            });
+            
+            // Set up fallback timer for video_watched (10s confirmation)
             if (!window._oieYouTubeWatchTimers) {
               window._oieYouTubeWatchTimers = new Map();
             }
