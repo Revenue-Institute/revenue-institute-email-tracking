@@ -54,21 +54,32 @@
 
   /**
    * Find all YouTube iframes on the page
+   * Also checks for Embedly-wrapped videos and dynamically loaded iframes
    */
   function findYouTubeIframes() {
-    const iframes = document.querySelectorAll('iframe');
     const youtubeIframes = [];
+    const checkedIframes = new Set();
 
+    // Method 1: Check all existing iframes
+    const iframes = document.querySelectorAll('iframe');
     iframes.forEach((iframe, index) => {
-      const src = iframe.src || '';
+      if (checkedIframes.has(iframe)) return;
+      checkedIframes.add(iframe);
       
-      // Check if it's a YouTube iframe
-      if (src.includes('youtube.com/embed/') || 
-          src.includes('youtu.be/') ||
-          src.includes('youtube-nocookie.com/embed/')) {
+      const src = iframe.src || '';
+      const dataSrc = iframe.getAttribute('data-src') || '';
+      const fullSrc = src || dataSrc;
+      
+      // Check if it's a YouTube iframe (direct or via Embedly)
+      if (fullSrc.includes('youtube.com/embed/') || 
+          fullSrc.includes('youtu.be/') ||
+          fullSrc.includes('youtube-nocookie.com/embed/') ||
+          fullSrc.includes('youtube.com/watch') ||
+          // Check for Embedly YouTube embeds
+          (iframe.closest && iframe.closest('[data-embed]') && fullSrc.includes('youtube'))) {
         
         // Extract video ID
-        const videoId = extractVideoId(src);
+        const videoId = extractVideoId(fullSrc);
         
         if (videoId) {
           youtubeIframes.push({
@@ -81,6 +92,53 @@
       }
     });
 
+    // Method 2: Check for Embedly containers that might contain YouTube videos
+    const embedlyContainers = document.querySelectorAll('[data-embed], .embedly-card, [class*="embedly"]');
+    embedlyContainers.forEach((container) => {
+      const iframe = container.querySelector('iframe');
+      if (iframe && !checkedIframes.has(iframe)) {
+        checkedIframes.add(iframe);
+        const src = iframe.src || iframe.getAttribute('data-src') || '';
+        if (src.includes('youtube')) {
+          const videoId = extractVideoId(src);
+          if (videoId) {
+            youtubeIframes.push({
+              element: iframe,
+              videoId: videoId,
+              index: youtubeIframes.length,
+              id: iframe.id || `youtube-player-${youtubeIframes.length}`
+            });
+          }
+        }
+      }
+    });
+
+    // Method 3: Check for YouTube video elements (YouTube creates a <video> element inside the iframe)
+    // This won't work due to cross-origin, but we can check the parent structure
+    const videoElements = document.querySelectorAll('video');
+    videoElements.forEach((video) => {
+      // Check if video is inside an iframe or has YouTube-related attributes
+      const parent = video.closest('iframe') || video.parentElement;
+      if (parent && parent.tagName === 'IFRAME') {
+        const iframe = parent;
+        if (!checkedIframes.has(iframe)) {
+          checkedIframes.add(iframe);
+          const src = iframe.src || '';
+          if (src.includes('youtube')) {
+            const videoId = extractVideoId(src);
+            if (videoId) {
+              youtubeIframes.push({
+                element: iframe,
+                videoId: videoId,
+                index: youtubeIframes.length,
+                id: iframe.id || `youtube-player-${youtubeIframes.length}`
+              });
+            }
+          }
+        }
+      }
+    });
+
     return youtubeIframes;
   }
 
@@ -88,9 +146,17 @@
    * Extract YouTube video ID from URL
    */
   function extractVideoId(url) {
+    if (!url) return null;
+    
     const patterns = [
+      // Standard embed URLs
       /(?:youtube\.com\/embed\/|youtu\.be\/|youtube-nocookie\.com\/embed\/)([^?&\/]+)/,
-      /[?&]v=([^?&]+)/
+      // Watch URLs
+      /[?&]v=([^?&]+)/,
+      // Short URLs
+      /youtu\.be\/([^?&\/]+)/,
+      // Embedly URLs might have different formats
+      /youtube\.com\/watch\?.*v=([^&]+)/
     ];
 
     for (const pattern of patterns) {
@@ -352,13 +418,137 @@
     }
   }
 
+  // Track YouTube play button clicks as fallback (before iframe loads)
+  function setupPlayButtonTracking() {
+    // Find YouTube play buttons (ytp-large-play-button)
+    const playButtons = document.querySelectorAll('.ytp-large-play-button, [class*="ytp-play-button"], [class*="ytp-cued-thumbnail"]');
+    playButtons.forEach((button) => {
+      if (button._oiePlayButtonTracked) return;
+      button._oiePlayButtonTracked = true;
+      
+      button.addEventListener('click', () => {
+        // Try to find the video ID from nearby elements
+        const container = button.closest('[class*="ytp"], [data-video-id], iframe, [class*="embedly"]');
+        let videoId = null;
+        
+        // Check for data attributes
+        if (container) {
+          videoId = container.getAttribute('data-video-id') || 
+                   container.getAttribute('data-youtube-id') ||
+                   container.getAttribute('data-video');
+        }
+        
+        // Try to extract from iframe src if available
+        if (!videoId) {
+          const iframe = container?.querySelector('iframe') || 
+                        document.querySelector('iframe[src*="youtube"], iframe[data-src*="youtube"]');
+          if (iframe) {
+            const src = iframe.src || iframe.getAttribute('data-src') || '';
+            videoId = extractVideoId(src);
+          }
+        }
+        
+        // Try to extract from page URL or meta tags
+        if (!videoId) {
+          const metaVideoId = document.querySelector('meta[property="og:video"]')?.content ||
+                             document.querySelector('meta[name="twitter:player"]')?.content;
+          if (metaVideoId) {
+            videoId = extractVideoId(metaVideoId);
+          }
+        }
+        
+        // Try to extract from any YouTube URL on the page
+        if (!videoId) {
+          const youtubeLinks = document.querySelectorAll('a[href*="youtube.com"], a[href*="youtu.be"]');
+          for (const link of youtubeLinks) {
+            const href = link.getAttribute('href');
+            if (href) {
+              videoId = extractVideoId(href);
+              if (videoId) break;
+            }
+          }
+        }
+        
+        // Try to extract from YouTube thumbnail image URLs (i.ytimg.com/vi_webp/VIDEO_ID/...)
+        if (!videoId) {
+          const thumbnailImages = container?.querySelectorAll('img[src*="i.ytimg.com"], [style*="i.ytimg.com"]') || [];
+          for (const img of thumbnailImages) {
+            const src = img.src || img.getAttribute('style') || '';
+            const match = src.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
+            if (match && match[1]) {
+              videoId = match[1];
+              break;
+            }
+          }
+        }
+        
+        // Also check background-image styles
+        if (!videoId && container) {
+          const style = window.getComputedStyle(container).backgroundImage;
+          if (style) {
+            const match = style.match(/i\.ytimg\.com\/vi[^\/]+\/([^\/]+)\//);
+            if (match && match[1]) {
+              videoId = match[1];
+            }
+          }
+        }
+        
+        if (videoId && window.oieTracker) {
+          console.log('🎥 YouTube play button clicked, tracking:', videoId);
+          window.oieTracker.track('video_play', {
+            src: `https://www.youtube.com/watch?v=${videoId}`,
+            videoId: videoId,
+            platform: 'youtube',
+            triggeredBy: 'play_button_click'
+          });
+        } else {
+          console.log('🎥 YouTube play button clicked but video ID not found');
+        }
+      }, { once: false }); // Allow multiple clicks
+    });
+  }
+
   // Auto-initialize when DOM is ready
+  // Try multiple times since YouTube iframes load dynamically
+  function tryInitialize() {
+    // First, set up play button tracking (works even before iframe loads)
+    setupPlayButtonTracking();
+    
+    // Then try to initialize YouTube API tracking
+    initYouTubeTracking();
+    
+    // Try again after delays (for dynamically loaded iframes)
+    setTimeout(() => {
+      setupPlayButtonTracking(); // Re-check for new buttons
+      const videos = findYouTubeIframes();
+      if (videos.length > 0 && trackedVideos.size === 0) {
+        console.log('🎥 Found YouTube iframes on retry, initializing...');
+        initYouTubeTracking();
+      }
+    }, 2000);
+    
+    setTimeout(() => {
+      setupPlayButtonTracking(); // Re-check again
+      const videos = findYouTubeIframes();
+      if (videos.length > 0 && trackedVideos.size === 0) {
+        console.log('🎥 Found YouTube iframes on second retry, initializing...');
+        initYouTubeTracking();
+      }
+    }, 5000);
+    
+    // Final retry after 10 seconds
+    setTimeout(() => {
+      setupPlayButtonTracking();
+      initYouTubeTracking();
+    }, 10000);
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      setTimeout(initYouTubeTracking, 1000); // Wait 1 second for iframes to load
+      setTimeout(tryInitialize, 500);
     });
   } else {
-    setTimeout(initYouTubeTracking, 1000);
+    setTimeout(tryInitialize, 500);
   }
 
   // Also watch for dynamically added YouTube iframes
@@ -369,29 +559,76 @@
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === 1) {
-            const iframes = node.tagName === 'IFRAME' 
-              ? [node] 
-              : (node.querySelectorAll?.('iframe') || []);
+            const element = node;
+            // Check if the added node is an iframe
+            if (element.tagName === 'IFRAME') {
+              const src = element.src || element.getAttribute('data-src') || '';
+              if (src.includes('youtube.com/embed/') || 
+                  src.includes('youtu.be/') || 
+                  src.includes('youtube-nocookie.com/embed/') ||
+                  src.includes('youtube.com/watch')) {
+                hasNewYouTubeIframe = true;
+              }
+            }
             
+            // Check if the added node contains iframes
+            const iframes = element.querySelectorAll?.('iframe') || [];
             iframes.forEach(iframe => {
-              const src = iframe.src || '';
-              if (src.includes('youtube.com/embed/') || src.includes('youtu.be/')) {
+              const src = iframe.src || iframe.getAttribute('data-src') || '';
+              if (src.includes('youtube.com/embed/') || 
+                  src.includes('youtu.be/') || 
+                  src.includes('youtube-nocookie.com/embed/') ||
+                  src.includes('youtube.com/watch')) {
                 hasNewYouTubeIframe = true;
               }
             });
+            
+            // Check for Embedly containers
+            if (element.hasAttribute && (
+                element.hasAttribute('data-embed') ||
+                element.className?.includes('embedly') ||
+                element.classList?.contains('embedly-card')
+            )) {
+              const iframe = element.querySelector('iframe');
+              if (iframe) {
+                const src = iframe.src || iframe.getAttribute('data-src') || '';
+                if (src.includes('youtube')) {
+                  hasNewYouTubeIframe = true;
+                }
+              }
+            }
+          }
+        });
+      });
+
+      // Check for new play buttons
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) {
+            const element = node;
+            if (element.classList?.contains('ytp-large-play-button') || 
+                element.querySelector?.('.ytp-large-play-button') ||
+                element.classList?.contains('ytp-cued-thumbnail')) {
+              setupPlayButtonTracking();
+            }
           }
         });
       });
 
       if (hasNewYouTubeIframe) {
-        console.log('🎥 New YouTube iframe detected, re-initializing...');
-        setTimeout(initYouTubeTracking, 500);
+        console.log('🎥 New YouTube iframe detected via MutationObserver, re-initializing...');
+        setupPlayButtonTracking(); // Also set up play button tracking for new elements
+        setTimeout(() => {
+          initYouTubeTracking();
+        }, 1000); // Wait a bit for iframe to fully load
       }
     });
 
     observer.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
+      attributes: true, // Watch for src attribute changes
+      attributeFilter: ['src', 'data-src'] // Only watch src changes
     });
   }
 
