@@ -111,6 +111,279 @@ export default {
       });
     }
 
+    if (url.pathname === '/youtube-tracking-integration.js') {
+      // Serve YouTube tracking integration script
+      // This will be loaded from the file system or bundled
+      const youtubeTrackingCode = `/**
+ * YouTube Video Tracking Integration
+ * Tracks YouTube video events and sends them to Outbound Intent Engine
+ */
+(function() {
+  'use strict';
+  const trackedVideos = new Map();
+  function initYouTubeTracking() {
+    if (!window.oieTracker) {
+      console.warn('⚠️ OutboundIntentTracker not found. YouTube tracking will not work.');
+      return;
+    }
+    const youtubeIframes = findYouTubeIframes();
+    if (youtubeIframes.length === 0) {
+      console.log('🎥 No YouTube iframes found on page');
+      return;
+    }
+    console.log(\`🎥 Found \${youtubeIframes.length} YouTube iframe(s)\`);
+    if (typeof YT === 'undefined' || typeof YT.Player === 'undefined') {
+      loadYouTubeAPI(() => {
+        initializePlayers(youtubeIframes);
+      });
+    } else {
+      if (YT.ready) {
+        YT.ready(() => {
+          initializePlayers(youtubeIframes);
+        });
+      } else {
+        initializePlayers(youtubeIframes);
+      }
+    }
+  }
+  function findYouTubeIframes() {
+    const iframes = document.querySelectorAll('iframe');
+    const youtubeIframes = [];
+    iframes.forEach((iframe, index) => {
+      const src = iframe.src || '';
+      if (src.includes('youtube.com/embed/') || 
+          src.includes('youtu.be/') ||
+          src.includes('youtube-nocookie.com/embed/')) {
+        const videoId = extractVideoId(src);
+        if (videoId) {
+          youtubeIframes.push({
+            element: iframe,
+            videoId: videoId,
+            index: index,
+            id: iframe.id || \`youtube-player-\${index}\`
+          });
+        }
+      }
+    });
+    return youtubeIframes;
+  }
+  function extractVideoId(url) {
+    const patterns = [
+      /(?:youtube\\.com\\/embed\\/|youtu\\.be\\/|youtube-nocookie\\.com\\/embed\\/)([^?&\\/]+)/,
+      /[?&]v=([^?&]+)/
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    return null;
+  }
+  function loadYouTubeAPI(callback) {
+    if (window.onYouTubeIframeAPIReady) {
+      const originalCallback = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = function() {
+        originalCallback();
+        if (callback) callback();
+      };
+      return;
+    }
+    window.onYouTubeIframeAPIReady = callback;
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+  }
+  function initializePlayers(youtubeIframes) {
+    youtubeIframes.forEach((iframeInfo) => {
+      if (trackedVideos.has(iframeInfo.videoId)) {
+        return;
+      }
+      try {
+        if (!iframeInfo.element.id) {
+          iframeInfo.element.id = iframeInfo.id;
+        }
+        const player = new YT.Player(iframeInfo.element.id, {
+          events: {
+            'onReady': (event) => {
+              console.log('🎥 YouTube player ready:', iframeInfo.videoId);
+              setupVideoTracking(event.target, iframeInfo.videoId);
+            },
+            'onStateChange': (event) => {
+              handleStateChange(event, iframeInfo.videoId);
+            },
+            'onError': (event) => {
+              console.error('🎥 YouTube player error:', event.data);
+            }
+          }
+        });
+        trackedVideos.set(iframeInfo.videoId, {
+          player: player,
+          tracked25: false,
+          tracked50: false,
+          tracked75: false,
+          tracked100: false
+        });
+      } catch (error) {
+        console.error('🎥 Error initializing YouTube player:', error);
+      }
+    });
+  }
+  function setupVideoTracking(player, videoId) {
+    const videoInfo = trackedVideos.get(videoId);
+    if (!videoInfo) return;
+    const progressInterval = setInterval(() => {
+      try {
+        if (player.getPlayerState() === YT.PlayerState.PLAYING) {
+          const currentTime = player.getCurrentTime();
+          const duration = player.getDuration();
+          if (!duration || duration <= 0) return;
+          const percent = (currentTime / duration) * 100;
+          if (percent >= 25 && !videoInfo.tracked25) {
+            videoInfo.tracked25 = true;
+            console.log('🎥 YouTube video progress: 25%');
+            trackVideoProgress(videoId, 25, currentTime, duration);
+          }
+          if (percent >= 50 && !videoInfo.tracked50) {
+            videoInfo.tracked50 = true;
+            console.log('🎥 YouTube video progress: 50%');
+            trackVideoProgress(videoId, 50, currentTime, duration);
+          }
+          if (percent >= 75 && !videoInfo.tracked75) {
+            videoInfo.tracked75 = true;
+            console.log('🎥 YouTube video progress: 75%');
+            trackVideoProgress(videoId, 75, currentTime, duration);
+          }
+          if (percent >= 100 && !videoInfo.tracked100) {
+            videoInfo.tracked100 = true;
+            console.log('🎥 YouTube video progress: 100%');
+            clearInterval(progressInterval);
+            trackVideoComplete(videoId, duration);
+          }
+        }
+      } catch (error) {
+        clearInterval(progressInterval);
+      }
+    }, 1000);
+    videoInfo.progressInterval = progressInterval;
+  }
+  function handleStateChange(event, videoId) {
+    const player = event.target;
+    const state = event.data;
+    switch (state) {
+      case YT.PlayerState.PLAYING:
+        console.log('🎥 YouTube video play:', videoId);
+        trackVideoPlay(videoId);
+        break;
+      case YT.PlayerState.PAUSED:
+        console.log('🎥 YouTube video pause:', videoId);
+        const currentTime = player.getCurrentTime();
+        trackVideoPause(videoId, currentTime);
+        break;
+      case YT.PlayerState.ENDED:
+        console.log('🎥 YouTube video ended:', videoId);
+        const videoInfo = trackedVideos.get(videoId);
+        if (videoInfo && !videoInfo.tracked100) {
+          videoInfo.tracked100 = true;
+          const duration = player.getDuration();
+          trackVideoComplete(videoId, duration);
+        }
+        break;
+    }
+  }
+  function trackVideoPlay(videoId) {
+    if (window.oieTracker) {
+      window.oieTracker.track('video_play', {
+        src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+        videoId: videoId,
+        platform: 'youtube',
+        videoType: 'youtube'
+      });
+    }
+  }
+  function trackVideoPause(videoId, currentTime) {
+    if (window.oieTracker) {
+      window.oieTracker.track('video_pause', {
+        src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+        videoId: videoId,
+        platform: 'youtube',
+        currentTime: currentTime
+      });
+    }
+  }
+  function trackVideoProgress(videoId, progress, currentTime, duration) {
+    if (window.oieTracker) {
+      window.oieTracker.track('video_progress', {
+        src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+        videoId: videoId,
+        platform: 'youtube',
+        progress: progress,
+        currentTime: currentTime,
+        duration: duration
+      });
+    }
+  }
+  function trackVideoComplete(videoId, duration) {
+    if (window.oieTracker) {
+      window.oieTracker.track('video_complete', {
+        src: \`https://www.youtube.com/watch?v=\${videoId}\`,
+        videoId: videoId,
+        platform: 'youtube',
+        duration: duration
+      });
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(initYouTubeTracking, 1000);
+    });
+  } else {
+    setTimeout(initYouTubeTracking, 1000);
+  }
+  if (typeof MutationObserver !== 'undefined') {
+    const observer = new MutationObserver((mutations) => {
+      let hasNewYouTubeIframe = false;
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) {
+            const iframes = node.tagName === 'IFRAME' 
+              ? [node] 
+              : (node.querySelectorAll?.('iframe') || []);
+            iframes.forEach(iframe => {
+              const src = iframe.src || '';
+              if (src.includes('youtube.com/embed/') || src.includes('youtu.be/')) {
+                hasNewYouTubeIframe = true;
+              }
+            });
+          }
+        });
+      });
+      if (hasNewYouTubeIframe) {
+        console.log('🎥 New YouTube iframe detected, re-initializing...');
+        setTimeout(initYouTubeTracking, 500);
+      }
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+  window.initYouTubeTracking = initYouTubeTracking;
+})();`;
+
+      return new Response(youtubeTrackingCode, {
+        headers: { 
+          'Content-Type': 'application/javascript',
+          'Cache-Control': 'public, max-age=300, must-revalidate',
+          'Access-Control-Allow-Origin': '*', // Allow cross-origin - fixes CORS error
+          'X-Content-Type-Options': 'nosniff',
+          'ETag': `"youtube-tracking-v1"`,
+          'Vary': 'Accept-Encoding'
+        }
+      });
+    }
+
     return new Response('Not Found', { status: 404 });
   },
 
