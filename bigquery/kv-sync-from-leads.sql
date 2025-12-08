@@ -1,14 +1,16 @@
 -- ============================================
--- Automated KV Sync for Personalization
--- Schedule: Every 1 hour
--- Purpose: Keep KV updated with new leads and behavioral data
+-- KV Sync: Read directly from leads table
+-- Schedule: Every 1 hour via GitHub Actions
+-- Purpose: Sync leads data to Cloudflare KV for personalization
 -- ============================================
 
--- Export query that creates JSON for KV sync
--- This will be exported to Cloud Storage, then synced to KV via Cloud Function
+-- This query exports leads for KV sync
+-- Syncs: 
+-- 1. ALL leads added in last 10 minutes (real-time)
+-- 2. ALL leads who visited in last 10 minutes (behavioral updates)
 
 WITH 
--- Step 1: Get behavioral data for return visitors
+-- Step 1: Get behavioral data for visitors
 behavioral_data AS (
   SELECT 
     visitorId,
@@ -36,7 +38,7 @@ behavioral_data AS (
   GROUP BY visitorId
 )
 
--- Step 3: Combine lead data + behavioral data for KV
+-- Step 2: Combine lead data + behavioral data for KV
 SELECT 
   l.trackingId as kv_key,
   TO_JSON_STRING(STRUCT(
@@ -63,6 +65,13 @@ SELECT
     l.job_title as jobTitle,
     l.seniority,
     l.department,
+    
+    -- Address (if you have these fields)
+    -- l.address,
+    -- l.city,
+    -- l.state,
+    -- l.country,
+    -- l.zip_code,
     
     -- Tracking
     l.trackingId,
@@ -98,19 +107,24 @@ FROM `n8n-revenueinstitute.outbound_sales.leads` l
 LEFT JOIN behavioral_data b ON l.trackingId = b.visitorId
 WHERE l.trackingId IS NOT NULL
   AND (
-    l.inserted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)  -- Only recent leads
+    l.inserted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 10 MINUTE)  -- New leads
     OR b.visitorId IS NOT NULL  -- OR leads who have visited
   )
 ORDER BY b.lastVisit DESC NULLS LAST
 LIMIT 50000;  -- Adjust based on how many leads you want in KV
 
 -- ============================================
--- Note: This query exports to Cloud Storage
--- Then a Cloud Function syncs to Cloudflare KV
--- See: scripts/setup-automated-kv-sync.sh
+-- Expected output format:
+-- kv_key: "abc123def"
+-- kv_value: {
+--   "firstName": "John",
+--   "lastName": "Smith", 
+--   "email": "john@example.com",
+--   "company": "Acme Corp",
+--   "trackingId": "abc123def",
+--   ...
+-- }
 -- ============================================
-
-
 
 
 

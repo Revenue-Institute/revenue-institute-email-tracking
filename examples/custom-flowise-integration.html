@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Flowise Integration with Personalization</title>
+</head>
+<body>
+  <h1>Custom Flowise Chatbot with Personalization</h1>
+  
+  <!-- Your Flowise Chatbot Container -->
+  <div id="flowise-chatbot-container"></div>
+
+  <!-- Tracking Pixel -->
+  <script>
+    window.oieConfig = {
+      endpoint: 'https://your-worker.workers.dev/track',
+      debug: true
+    };
+  </script>
+  <script src="/dist/pixel.js"></script>
+
+  <script>
+    /**
+     * Get personalization data and pass it to your custom Flowise function
+     */
+    async function initializeCustomFlowise() {
+      // Wait for tracker to initialize
+      if (!window.oieTracker || !window.oieTracker.visitorId) {
+        console.log('⏳ Waiting for tracker to initialize...');
+        setTimeout(initializeCustomFlowise, 500);
+        return;
+      }
+
+      // Initialize personalizer
+      const personalizer = new window.Personalizer(
+        'https://your-worker.workers.dev/personalize',
+        window.oieTracker.visitorId
+      );
+
+      // Fetch personalization data
+      await personalizer.personalize();
+      const personalizationData = personalizer.getData();
+
+      // Prepare clean personalization object for Flowise
+      const flowiseVariables = {};
+      
+      if (personalizationData && personalizationData.personalized) {
+        // Personal Information
+        if (personalizationData.firstName) flowiseVariables.firstName = personalizationData.firstName;
+        if (personalizationData.lastName) flowiseVariables.lastName = personalizationData.lastName;
+        if (personalizationData.personName) flowiseVariables.personName = personalizationData.personName;
+        if (personalizationData.email) flowiseVariables.email = personalizationData.email;
+        if (personalizationData.phone) flowiseVariables.phone = personalizationData.phone;
+        if (personalizationData.linkedin) flowiseVariables.linkedin = personalizationData.linkedin;
+
+        // Company Information
+        if (personalizationData.company) flowiseVariables.company = personalizationData.company;
+        if (personalizationData.companyName) flowiseVariables.companyName = personalizationData.companyName;
+        if (personalizationData.companyDescription) flowiseVariables.companyDescription = personalizationData.companyDescription;
+        if (personalizationData.companySize) flowiseVariables.companySize = personalizationData.companySize;
+        if (personalizationData.revenue) flowiseVariables.revenue = personalizationData.revenue;
+        if (personalizationData.industry) flowiseVariables.industry = personalizationData.industry;
+        if (personalizationData.companyWebsite) flowiseVariables.companyWebsite = personalizationData.companyWebsite;
+        if (personalizationData.companyLinkedin) flowiseVariables.companyLinkedin = personalizationData.companyLinkedin;
+        if (personalizationData.domain) flowiseVariables.domain = personalizationData.domain;
+
+        // Job Information
+        if (personalizationData.jobTitle) flowiseVariables.jobTitle = personalizationData.jobTitle;
+        if (personalizationData.seniority) flowiseVariables.seniority = personalizationData.seniority;
+        if (personalizationData.department) flowiseVariables.department = personalizationData.department;
+
+        // Campaign Attribution
+        if (personalizationData.campaignId) flowiseVariables.campaignId = personalizationData.campaignId;
+        if (personalizationData.campaignName) flowiseVariables.campaignName = personalizationData.campaignName;
+
+        // Behavioral Data
+        if (personalizationData.intentScore !== undefined) flowiseVariables.intentScore = personalizationData.intentScore;
+        if (personalizationData.engagementLevel) flowiseVariables.engagementLevel = personalizationData.engagementLevel;
+        if (personalizationData.totalVisits !== undefined) flowiseVariables.totalVisits = personalizationData.totalVisits;
+        if (personalizationData.totalPageviews !== undefined) flowiseVariables.totalPageviews = personalizationData.totalPageviews;
+        if (personalizationData.isFirstVisit !== undefined) flowiseVariables.isFirstVisit = personalizationData.isFirstVisit;
+        if (personalizationData.viewedPricing !== undefined) flowiseVariables.viewedPricing = personalizationData.viewedPricing;
+        if (personalizationData.submittedForm !== undefined) flowiseVariables.submittedForm = personalizationData.submittedForm;
+
+        // Visitor ID
+        if (window.oieTracker?.visitorId) flowiseVariables.visitorId = window.oieTracker.visitorId;
+      }
+
+      console.log('📤 Personalization data for Flowise:', flowiseVariables);
+
+      // ============================================
+      // YOUR CUSTOM FLOWISE FUNCTION CALL
+      // ============================================
+      // Replace this with your actual custom Flowise embed function
+      // Pass flowiseVariables as a parameter
+      
+      // Example 1: If your custom function accepts variables as an object
+      if (window.YourCustomFlowiseFunction) {
+        window.YourCustomFlowiseFunction({
+          containerId: 'flowise-chatbot-container',
+          chatflowId: 'your-chatflow-id',
+          apiHost: 'https://your-flowise-instance.com',
+          // Pass all personalization variables here
+          variables: flowiseVariables,
+          // Or pass them individually if your function expects that:
+          // firstName: flowiseVariables.firstName,
+          // company: flowiseVariables.company,
+          // intentScore: flowiseVariables.intentScore,
+          // ... etc
+        });
+      }
+
+      // Example 2: If your custom function accepts variables as sessionVariables
+      if (window.YourCustomFlowiseInit) {
+        window.YourCustomFlowiseInit({
+          chatflowid: 'your-chatflow-id',
+          apiHost: 'https://your-flowise-instance.com',
+          sessionVariables: flowiseVariables
+        });
+      }
+
+      // Example 3: If your custom function is a React/Vue component initialization
+      // You might need to pass it differently based on your framework
+      if (window.initFlowiseChatbot) {
+        window.initFlowiseChatbot('flowise-chatbot-container', flowiseVariables);
+      }
+
+      // Example 4: If you're calling a custom API endpoint
+      // fetch('https://your-flowise-instance.com/api/custom-endpoint', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({
+      //     chatflowId: 'your-chatflow-id',
+      //     variables: flowiseVariables
+      //   })
+      // });
+
+      // Store globally for later access
+      window.flowisePersonalizationData = flowiseVariables;
+    }
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initializeCustomFlowise);
+    } else {
+      initializeCustomFlowise();
+    }
+
+    // Alternative: Listen for personalization event
+    window.addEventListener('personalized', (e) => {
+      console.log('📨 Personalization event received:', e.detail);
+      // Re-initialize Flowise with new data if needed
+      initializeCustomFlowise();
+    });
+  </script>
+
+  <!-- 
+    YOUR CUSTOM FLOWISE EMBED CODE GOES HERE
+    Make sure it's loaded before the initialization script above
+  -->
+  <!--
+  <script src="path/to/your/custom-flowise-component.js"></script>
+  -->
+</body>
+</html>
+
+
+
+
+

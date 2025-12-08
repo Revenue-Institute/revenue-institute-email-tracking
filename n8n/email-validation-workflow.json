@@ -1,0 +1,134 @@
+{
+  "name": "Email Validation - Bulk Update to BigQuery",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT email, trackingId\nFROM `n8n-revenueinstitute.outbound_sales.leads`\nWHERE email_status = 'unverified'\nLIMIT 1000;",
+        "projectId": "n8n-revenueinstitute",
+        "location": "us"
+      },
+      "name": "Get 1000 Unvalidated Emails",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 100,
+        "options": {}
+      },
+      "name": "Loop Over Emails",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.zerobounce.net/v2/validate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zeroBounceApi",
+        "qs": {
+          "parameter": [
+            {
+              "name": "api_key",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Validate Email (ZeroBounce)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Map validation result to our status\nconst result = items[0].json;\nlet status = 'unverified';\n\nif (result.status === 'valid') {\n  status = 'verified';\n} else if (result.status === 'invalid') {\n  status = 'invalid';\n} else if (result.status === 'catch-all') {\n  status = 'accept_all';\n}\n\nreturn items.map(item => ({\n  json: {\n    email: item.json.email,\n    trackingId: item.json.trackingId,\n    email_status: status,\n    validation_result: result\n  }\n}));"
+      },
+      "name": "Map Validation Result",
+      "type": "n8n-nodes-base.function",
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $node['Loop Over Emails'].context.noItemsLeft }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Batch Complete?",
+      "type": "n8n-nodes-base.if",
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build bulk UPDATE query from all validated emails\nconst allValidated = $input.all();\n\n// Build CASE statements\nconst caseStatements = allValidated.map(item => {\n  const email = item.json.email.toLowerCase().trim();\n  const status = item.json.email_status;\n  return `WHEN LOWER(TRIM(email)) = '${email}' THEN '${status}'`;\n}).join('\\n      ');\n\n// Build email list\nconst emailList = allValidated.map(item => \n  `'${item.json.email.toLowerCase().trim()}'`\n).join(', ');\n\nconst updateQuery = `\nUPDATE \\`n8n-revenueinstitute.outbound_sales.leads\\`\nSET email_status = CASE\n      ${caseStatements}\n      ELSE email_status\n    END\nWHERE LOWER(TRIM(email)) IN (${emailList});\n`;\n\nreturn [{\n  json: {\n    query: updateQuery,\n    emails_updated: allValidated.length\n  }\n}];"
+      },
+      "name": "Build Bulk UPDATE",
+      "type": "n8n-nodes-base.function",
+      "position": [1450, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "projectId": "n8n-revenueinstitute",
+        "location": "us"
+      },
+      "name": "Update BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [1650, 200]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Get 1000 Unvalidated Emails", "type": "main", "index": 0 }]]
+    },
+    "Get 1000 Unvalidated Emails": {
+      "main": [[{ "node": "Loop Over Emails", "type": "main", "index": 0 }]]
+    },
+    "Loop Over Emails": {
+      "main": [[{ "node": "Validate Email (ZeroBounce)", "type": "main", "index": 0 }]]
+    },
+    "Validate Email (ZeroBounce)": {
+      "main": [[{ "node": "Map Validation Result", "type": "main", "index": 0 }]]
+    },
+    "Map Validation Result": {
+      "main": [[{ "node": "Batch Complete?", "type": "main", "index": 0 }]]
+    },
+    "Batch Complete?": {
+      "main": [
+        [{ "node": "Build Bulk UPDATE", "type": "main", "index": 0 }],
+        [{ "node": "Loop Over Emails", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Bulk UPDATE": {
+      "main": [[{ "node": "Update BigQuery", "type": "main", "index": 0 }]]
+    }
+  }
+}
+
+
+

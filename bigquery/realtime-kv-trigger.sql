@@ -45,3 +45,8 @@ END IF;
 -- WHERE inserted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 10 MINUTE);
 
 
+
+
+
+
+

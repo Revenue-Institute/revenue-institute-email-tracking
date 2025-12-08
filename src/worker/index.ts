@@ -1194,6 +1194,8 @@ async function syncBigQueryToKV(env: Env): Promise<void> {
     const query = `
       SELECT 
         l.trackingId,
+        l.firstName,
+        l.lastName,
         l.person_name,
         l.email,
         l.company_name,
@@ -1273,28 +1275,27 @@ async function syncBigQueryToKV(env: Env): Promise<void> {
     let synced = 0;
     for (const row of result.rows) {
       const f = row.f;
-      const personName = f[1].v || '';
-      const nameParts = personName.split(' ');
       
       const personalizationData = {
-        firstName: nameParts[0] || '',
-        lastName: nameParts.slice(1).join(' ') || '',
-        personName,
-        email: f[2].v,
-        phone: f[11].v,
-        linkedin: f[12].v,
-        company: f[3].v,
-        companyName: f[3].v,
-        domain: f[4].v || (f[2].v ? f[2].v.split('@')[1] : ''),
-        companyWebsite: f[4].v,
-        companyDescription: f[14].v,
-        companySize: f[5].v,
-        revenue: f[6].v,
-        industry: f[7].v,
-        companyLinkedin: f[13].v,
-        jobTitle: f[8].v,
-        seniority: f[9].v,
-        department: f[10].v,
+        trackingId: f[0].v,
+        firstName: f[1].v || '',
+        lastName: f[2].v || '',
+        personName: f[3].v || '',
+        email: f[4].v,
+        company: f[5].v,
+        companyName: f[5].v,
+        domain: f[6].v || (f[4].v ? f[4].v.split('@')[1] : ''),
+        companyWebsite: f[6].v,
+        companySize: f[7].v,
+        revenue: f[8].v,
+        industry: f[9].v,
+        jobTitle: f[10].v,
+        seniority: f[11].v,
+        department: f[12].v,
+        phone: f[13].v,
+        linkedin: f[14].v,
+        companyLinkedin: f[15].v,
+        companyDescription: f[16].v,
         isFirstVisit: true,
         intentScore: 0,
         engagementLevel: 'new',
@@ -1536,7 +1537,7 @@ async function handleIdentityLookup(request: Request, env: Env): Promise<Respons
 }
 
 /**
- * Lookup identity in BigQuery - JOIN with leads table for full data
+ * Lookup identity in BigQuery - Query leads table directly
  */
 async function lookupIdentityInBigQuery(shortId: string, env: Env): Promise<any> {
   console.log('📊 Looking up identity in BigQuery:', shortId);
@@ -1550,30 +1551,25 @@ async function lookupIdentityInBigQuery(shortId: string, env: Env): Promise<any>
     
     const query = `
       SELECT 
-        im.shortId,
-        im.email,
-        im.firstName,
-        im.lastName,
-        im.company,
-        im.campaignId,
-        im.campaignName,
-        -- Full lead data from leads table
-        l.person_name,
-        l.phone,
-        l.linkedin,
-        l.company_name,
-        l.company_description,
-        l.company_size,
-        l.revenue,
-        l.industry,
-        l.department,
-        l.company_website,
-        l.company_linkedin,
-        l.job_title,
-        l.seniority
-      FROM \`${projectId}.${dataset}.identity_map\` im
-      LEFT JOIN \`${projectId}.${dataset}.leads\` l ON im.email = l.email
-      WHERE im.shortId = @shortId
+        trackingId,
+        email,
+        firstName,
+        lastName,
+        person_name,
+        phone,
+        linkedin,
+        company_name,
+        company_description,
+        company_size,
+        revenue,
+        industry,
+        department,
+        company_website,
+        company_linkedin,
+        job_title,
+        seniority
+      FROM \`${projectId}.${dataset}.leads\`
+      WHERE trackingId = @shortId
       LIMIT 1
     `;
     
@@ -1610,31 +1606,33 @@ async function lookupIdentityInBigQuery(shortId: string, env: Env): Promise<any>
       const row = result.rows[0].f;
       return {
         // Identity data
-        shortId: row[0].v,
+        trackingId: row[0].v,
         email: row[1].v,
-        firstName: row[2].v || row[7].v, // firstName from identity_map or person_name from leads
+        firstName: row[2].v,
         lastName: row[3].v,
-        company: row[4].v || row[10].v, // company from identity_map or company_name from leads
-        campaignId: row[5].v,
-        campaignName: row[6].v,
+        personName: row[4].v,
         
-        // Full lead data
-        personName: row[7].v,
-        phone: row[8].v,
-        linkedin: row[9].v,
-        companyName: row[10].v,
-        companyDescription: row[11].v,
-        companySize: row[12].v,
-        revenue: row[13].v,
-        industry: row[14].v,
-        department: row[15].v,
-        companyWebsite: row[16].v,
-        companyLinkedin: row[17].v,
-        jobTitle: row[18].v,
-        seniority: row[19].v,
+        // Contact
+        phone: row[5].v,
+        linkedin: row[6].v,
+        
+        // Company
+        company: row[7].v,
+        companyName: row[7].v,
+        companyDescription: row[8].v,
+        companySize: row[9].v,
+        revenue: row[10].v,
+        industry: row[11].v,
+        department: row[12].v,
+        companyWebsite: row[13].v,
+        companyLinkedin: row[14].v,
+        
+        // Job
+        jobTitle: row[15].v,
+        seniority: row[16].v,
         
         // Computed domain
-        domain: row[16].v || (row[1].v ? row[1].v.split('@')[1] : null)
+        domain: row[13].v || (row[1].v ? row[1].v.split('@')[1] : null)
       };
     }
     
@@ -1647,7 +1645,7 @@ async function lookupIdentityInBigQuery(shortId: string, env: Env): Promise<any>
 
 /**
  * Handle personalization data fetch
- * First visit: Uses identity_map (name, company from leads table)
+ * First visit: Uses leads table (name, company, enrichment data)
  * Return visits: Uses lead_profiles (intent scores, behavior)
  */
 async function handlePersonalization(request: Request, env: Env): Promise<Response> {
@@ -1668,7 +1666,7 @@ async function handlePersonalization(request: Request, env: Env): Promise<Respon
     }
 
     if (!personalization) {
-      // Not in either KV, check if this is a known lead from identity_map  
+      // Not in either KV, check if this is a known lead from leads table
       const identity = await lookupIdentityInBigQuery(visitorId, env);
       
       if (identity) {

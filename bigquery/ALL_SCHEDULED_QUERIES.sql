@@ -1,12 +1,16 @@
 -- ============================================
--- Intent Scoring Queries for BigQuery Scheduled Queries
+-- ALL SCHEDULED QUERIES - READY TO DEPLOY
+-- ============================================
+-- Copy each query separately into BigQuery Scheduled Queries
 -- ============================================
 
 -- ============================================
 -- QUERY 1: Aggregate Events into Sessions
--- Schedule: Every 5 minutes
+-- Schedule: Every 5 minutes (*/5 * * * *)
+-- Name: "Aggregate Events to Sessions"
 -- ============================================
-MERGE `outbound_sales.sessions` T
+
+MERGE `n8n-revenueinstitute.outbound_sales.sessions` T
 USING (
   WITH session_events AS (
     SELECT 
@@ -33,9 +37,6 @@ USING (
       -- Active time
       MAX(CAST(JSON_EXTRACT_SCALAR(e.data, '$.activeTime') AS INT64)) as activeTime,
       
-      -- High-intent pages (array of URLs containing key paths)
-      ARRAY_AGG(DISTINCT CASE WHEN e.url LIKE '%/pricing%' OR e.url LIKE '%/demo%' OR e.url LIKE '%/contact%' THEN e.url END IGNORE NULLS) as highIntentPages,
-      
       -- Entry/Exit
       ARRAY_AGG(e.url ORDER BY e.timestamp LIMIT 1)[OFFSET(0)] as entryUrl,
       ARRAY_AGG(e.referrer ORDER BY e.timestamp LIMIT 1)[OFFSET(0)] as entryReferrer,
@@ -47,8 +48,8 @@ USING (
       ARRAY_AGG(e.city ORDER BY e.timestamp LIMIT 1)[OFFSET(0)] as city,
       ARRAY_AGG(e.region ORDER BY e.timestamp LIMIT 1)[OFFSET(0)] as region
       
-    FROM `outbound_sales.events` e
-    LEFT JOIN `outbound_sales.session_identity_map` sim ON e.sessionId = sim.sessionId
+    FROM `n8n-revenueinstitute.outbound_sales.events` e
+    LEFT JOIN `n8n-revenueinstitute.outbound_sales.session_identity_map` sim ON e.sessionId = sim.sessionId
     WHERE e.timestamp >= UNIX_MILLIS(TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR))
     GROUP BY e.sessionId, COALESCE(e.visitorId, sim.identifiedVisitorId)
   ),
@@ -97,7 +98,6 @@ USING (
       country,
       city,
       region,
-      highIntentPages,
       
       -- Calculate engagement score (0-100)
       LEAST(100, (
@@ -107,8 +107,7 @@ USING (
         (formsStarted * 15) +
         (formsSubmitted * 30) +
         (videosWatched * 20) +
-        (CAST(activeTime AS FLOAT64) / 10) +
-        (ARRAY_LENGTH(COALESCE(highIntentPages, [])) * 15)  -- +15 points per high-intent page visited
+        (CAST(activeTime AS FLOAT64) / 10)
       )) as engagementScore
       
     FROM session_events
@@ -129,36 +128,37 @@ WHEN MATCHED THEN
     formsSubmitted = S.formsSubmitted,
     videosWatched = S.videosWatched,
     engagementScore = S.engagementScore,
-    highIntentPages = S.highIntentPages,
     _updatedAt = CURRENT_TIMESTAMP()
 WHEN NOT MATCHED THEN
   INSERT (
     sessionId, visitorId, startTime, endTime, duration, activeTime,
     entryUrl, entryReferrer, exitUrl, pageviews, clicks, maxScrollDepth,
     formsStarted, formsSubmitted, videosWatched, device, browser, os,
-    country, city, region, engagementScore, highIntentPages, _updatedAt
+    country, city, region, engagementScore, _updatedAt
   )
   VALUES (
     S.sessionId, S.visitorId, S.startTime, S.endTime, S.duration, S.activeTime,
     S.entryUrl, S.entryReferrer, S.exitUrl, S.pageviews, S.clicks, S.maxScrollDepth,
     S.formsStarted, S.formsSubmitted, S.videosWatched, S.device, S.browser, S.os,
-    S.country, S.city, S.region, S.engagementScore, S.highIntentPages, CURRENT_TIMESTAMP()
+    S.country, S.city, S.region, S.engagementScore, CURRENT_TIMESTAMP()
   );
 
 
 -- ============================================
 -- QUERY 2: Update Lead Profiles
--- Schedule: Every 15 minutes
+-- Schedule: Every 15 minutes (*/15 * * * *)
+-- Name: "Update Lead Profiles"
 -- ============================================
-MERGE `outbound_sales.lead_profiles` T
+
+MERGE `n8n-revenueinstitute.outbound_sales.lead_profiles` T
 USING (
   WITH 
   -- Include de-anonymized sessions
   all_visitor_ids AS (
     SELECT DISTINCT
       COALESCE(s.visitorId, sim.identifiedVisitorId) as visitorId
-    FROM `outbound_sales.sessions` s
-    LEFT JOIN `outbound_sales.session_identity_map` sim ON s.sessionId = sim.sessionId
+    FROM `n8n-revenueinstitute.outbound_sales.sessions` s
+    LEFT JOIN `n8n-revenueinstitute.outbound_sales.session_identity_map` sim ON s.sessionId = sim.sessionId
     WHERE COALESCE(s.visitorId, sim.identifiedVisitorId) IS NOT NULL
       AND s.startTime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
   ),
@@ -172,17 +172,14 @@ USING (
       MAX(s.endTime) as lastVisitAt,
       
       -- Intent signals
-      SUM(CAST(s.viewedPricing AS INT64)) as pricingPageVisits,
-      SUM(CAST(s.viewedCaseStudies AS INT64)) as caseStudyViews,
-      SUM(CAST(s.viewedProduct AS INT64)) as productPageViews,
       SUM(s.formsSubmitted) as formSubmissions,
       SUM(s.videosWatched) as videoCompletions,
       
       -- Return visits
       COUNT(DISTINCT DATE(s.startTime)) - 1 as returnVisits
       
-    FROM `outbound_sales.sessions` s
-    LEFT JOIN `outbound_sales.session_identity_map` sim ON s.sessionId = sim.sessionId
+    FROM `n8n-revenueinstitute.outbound_sales.sessions` s
+    LEFT JOIN `n8n-revenueinstitute.outbound_sales.session_identity_map` sim ON s.sessionId = sim.sessionId
     WHERE COALESCE(s.visitorId, sim.identifiedVisitorId) IS NOT NULL
       AND s.startTime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
     GROUP BY COALESCE(s.visitorId, sim.identifiedVisitorId)
@@ -192,8 +189,8 @@ USING (
       COALESCE(e.visitorId, sim.identifiedVisitorId) as visitorId,
       ARRAY_AGG(JSON_EXTRACT_SCALAR(e.data, '$.email_sha256') IGNORE NULLS ORDER BY e.timestamp DESC LIMIT 1)[OFFSET(0)] as emailSHA256,
       ARRAY_AGG(JSON_EXTRACT_SCALAR(e.data, '$.email_sha1') IGNORE NULLS ORDER BY e.timestamp DESC LIMIT 1)[OFFSET(0)] as emailSHA1
-    FROM `outbound_sales.events` e
-    LEFT JOIN `outbound_sales.session_identity_map` sim ON e.sessionId = sim.sessionId
+    FROM `n8n-revenueinstitute.outbound_sales.events` e
+    LEFT JOIN `n8n-revenueinstitute.outbound_sales.session_identity_map` sim ON e.sessionId = sim.sessionId
     WHERE e.type = 'form_submit'
       AND JSON_EXTRACT_SCALAR(e.data, '$.email_sha256') IS NOT NULL
     GROUP BY COALESCE(e.visitorId, sim.identifiedVisitorId)
@@ -201,13 +198,13 @@ USING (
   identity_data AS (
     SELECT 
       l.trackingId as visitorId,
-      NULL as campaignId,
-      NULL as campaignName,
+      CAST(NULL AS STRING) as campaignId,
+      CAST(NULL AS STRING) as campaignName,
       l.email,
       l.firstName,
       l.lastName,
       l.company_name as company
-    FROM `outbound_sales.leads` l
+    FROM `n8n-revenueinstitute.outbound_sales.leads` l
     WHERE l.trackingId IS NOT NULL
   )
   SELECT 
@@ -226,9 +223,6 @@ USING (
     va.firstVisitAt,
     va.lastVisitAt,
     va.returnVisits,
-    va.pricingPageVisits,
-    va.caseStudyViews,
-    va.productPageViews,
     va.formSubmissions,
     va.videoCompletions,
     
@@ -247,11 +241,8 @@ USING (
       -- Frequency (0-20 points)
       LEAST(20, va.totalSessions * 4) +
       
-      -- Engagement (0-25 points)
-      LEAST(25, va.totalPageviews * 1.5 + (va.totalActiveTime / 60)) +
-      
-      -- High-intent pages (0-25 points)
-      LEAST(25, (va.pricingPageVisits * 8) + (va.caseStudyViews * 5) + (va.productPageViews * 4)) +
+      -- Engagement (0-50 points)
+      LEAST(50, va.totalPageviews * 2 + (va.totalActiveTime / 60)) +
       
       -- Conversions (0-20 points)
       LEAST(20, (va.formSubmissions * 15) + (va.videoCompletions * 5))
@@ -269,9 +260,6 @@ WHEN MATCHED THEN
     totalActiveTime = S.totalActiveTime,
     lastVisitAt = S.lastVisitAt,
     returnVisits = S.returnVisits,
-    pricingPageVisits = S.pricingPageVisits,
-    caseStudyViews = S.caseStudyViews,
-    productPageViews = S.productPageViews,
     formSubmissions = S.formSubmissions,
     videoCompletions = S.videoCompletions,
     intentScore = S.intentScore,
@@ -289,15 +277,13 @@ WHEN NOT MATCHED THEN
     visitorId, campaignId, campaignName, email, emailSHA256, emailSHA1,
     firstName, lastName, company, totalSessions, totalPageviews,
     totalActiveTime, firstVisitAt, lastVisitAt, returnVisits,
-    pricingPageVisits, caseStudyViews, productPageViews, formSubmissions,
-    videoCompletions, intentScore, engagementLevel, _createdAt, _updatedAt
+    formSubmissions, videoCompletions, intentScore, engagementLevel, _createdAt, _updatedAt
   )
   VALUES (
     S.visitorId, S.campaignId, S.campaignName, S.email, S.emailSHA256, S.emailSHA1,
     S.firstName, S.lastName, S.company, S.totalSessions, S.totalPageviews,
     S.totalActiveTime, S.firstVisitAt, S.lastVisitAt, S.returnVisits,
-    S.pricingPageVisits, S.caseStudyViews, S.productPageViews, S.formSubmissions,
-    S.videoCompletions, S.intentScore,
+    S.formSubmissions, S.videoCompletions, S.intentScore,
     CASE
       WHEN S.intentScore >= 80 THEN 'burning'
       WHEN S.intentScore >= 60 THEN 'hot'
@@ -309,78 +295,57 @@ WHEN NOT MATCHED THEN
 
 
 -- ============================================
--- QUERY 3: Sync High-Intent Leads to KV (for personalization)
--- Schedule: Every hour
+-- QUERY 3: De-Anonymize Visitor Sessions
+-- Schedule: Every 15 minutes (*/15 * * * *)
+-- Name: "De-Anonymize Visitor Sessions"
 -- ============================================
--- This query exports high-intent leads for syncing to Cloudflare KV
--- Export results to Cloud Storage, then use a Cloud Function to sync to KV
 
+WITH email_captures AS (
+  -- Find email_identified or form_submit events with email hashes
+  SELECT DISTINCT
+    sessionId,
+    JSON_EXTRACT_SCALAR(data, '$.emailHash') as emailHash,
+    timestamp
+  FROM `n8n-revenueinstitute.outbound_sales.events`
+  WHERE type IN ('email_identified', 'form_submit')
+    AND JSON_EXTRACT_SCALAR(data, '$.emailHash') IS NOT NULL
+    AND visitorId IS NULL  -- Was anonymous
+    AND _insertedAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
+),
+
+matched_identities AS (
+  -- Match email hashes to known leads
+  SELECT 
+    ec.sessionId,
+    ec.emailHash,
+    l.trackingId,
+    l.email,
+    l.person_name,
+    l.company_name
+  FROM email_captures ec
+  JOIN `n8n-revenueinstitute.outbound_sales.leads` l
+    ON SUBSTR(TO_HEX(SHA256(LOWER(TRIM(l.email)))), 1, 64) = ec.emailHash
+  WHERE l.trackingId IS NOT NULL
+)
+
+-- Insert de-anonymized mappings
+INSERT INTO `n8n-revenueinstitute.outbound_sales.session_identity_map`
+  (sessionId, originalVisitorId, identifiedVisitorId, email, emailHash, 
+   identifiedAt, identificationMethod, eventsCount)
 SELECT 
-  visitorId,
-  email,
-  firstName,
-  lastName,
-  company,
-  intentScore,
-  engagementLevel,
-  totalSessions,
-  lastVisitAt,
-  pricingPageVisits,
-  formSubmissions,
-  
-  -- Personalization data
-  STRUCT(
-    firstName,
-    company,
-    intentScore,
-    engagementLevel,
-    CAST(pricingPageVisits > 0 AS BOOL) as viewedPricing,
-    CAST(formSubmissions > 0 AS BOOL) as submittedForm
-  ) as personalizationData
-  
-FROM `outbound_sales.lead_profiles`
-WHERE intentScore >= 50  -- Only sync warm+ leads
-  AND lastVisitAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
-ORDER BY intentScore DESC;
-
-
--- ============================================
--- QUERY 4: Alert on Hot Leads (for CRM sync)
--- Schedule: Every 15 minutes
--- ============================================
--- Export leads that just became "hot" for immediate follow-up
-
-SELECT 
-  lp.visitorId,
-  lp.email,
-  lp.firstName,
-  lp.lastName,
-  lp.company,
-  lp.intentScore,
-  lp.engagementLevel,
-  lp.lastVisitAt,
-  lp.campaignName,
-  
-  -- Latest session details
-  s.entryUrl as lastPageVisited,
-  s.pageviews as lastSessionPageviews,
-  s.viewedPricing as lastSessionViewedPricing,
-  s.formsSubmitted as lastSessionFormSubmits,
-  
-  -- Alert metadata
-  CURRENT_TIMESTAMP() as alertedAt,
-  'hot_lead_alert' as alertType
-  
-FROM `outbound_sales.lead_profiles` lp
-LEFT JOIN `outbound_sales.sessions` s 
-  ON lp.visitorId = s.visitorId 
-  AND s.startTime = (
-    SELECT MAX(startTime) 
-    FROM `outbound_sales.sessions` 
-    WHERE visitorId = lp.visitorId
-  )
-WHERE lp.intentScore >= 70
-  AND lp.lastVisitAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 MINUTE)
-  AND (lp.syncedToCRM = FALSE OR lp.lastSyncedAt < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY))
-ORDER BY lp.intentScore DESC, lp.lastVisitAt DESC;
+  mi.sessionId,
+  CAST(NULL AS STRING) as originalVisitorId,
+  mi.trackingId as identifiedVisitorId,
+  mi.email,
+  mi.emailHash,
+  CURRENT_TIMESTAMP() as identifiedAt,
+  'form_email_capture' as identificationMethod,
+  COUNT(e.type) as eventsCount
+FROM matched_identities mi
+JOIN `n8n-revenueinstitute.outbound_sales.events` e ON mi.sessionId = e.sessionId
+WHERE mi.sessionId NOT IN (
+  -- Don't duplicate existing mappings
+  SELECT sessionId FROM `n8n-revenueinstitute.outbound_sales.session_identity_map`
+)
+GROUP BY mi.sessionId, mi.trackingId, mi.email, mi.emailHash;
 
