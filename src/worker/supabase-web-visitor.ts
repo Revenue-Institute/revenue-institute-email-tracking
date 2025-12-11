@@ -404,4 +404,25 @@ export class SupabaseClient {
       // Don't throw - email hashes are for de-anonymization
     }
   }
+
+  /**
+   * Enrich web_visitor with location, UTM, and other metadata
+   */
+  async updateWebVisitorEnrichment(
+    webVisitorId: string,
+    enrichmentData: any
+  ): Promise<void> {
+    try {
+      await this.request(
+        'PATCH',
+        `/web_visitor?id=eq.${webVisitorId}`,
+        enrichmentData
+      );
+
+      console.log(`✅ Enriched web_visitor ${webVisitorId} with metadata`);
+    } catch (error: any) {
+      console.error('❌ Error enriching web_visitor:', error);
+      throw error;
+    }
+  }
 }

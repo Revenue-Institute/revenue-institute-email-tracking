@@ -1443,6 +1443,28 @@ async function storeEvents(enrichedEvents: any[], env: Env, ctx?: ExecutionConte
       webVisitorId = await supabase.getOrCreateWebVisitor(visitorId, deviceFingerprint, browserId);
       console.log(`📊 Tracking as anonymous visitor: ${visitorId} → web_visitor ${webVisitorId}`);
       
+      // Enrich web_visitor with data from first event
+      const enrichmentData: any = {
+        first_page: firstEvent.url,
+        first_referrer: firstEvent.referrer || null,
+        country: firstEvent.country || null,
+        city: firstEvent.city || null,
+        region: firstEvent.region || null,
+        timezone: firstEvent.data?.timezone || null,
+        utm_source: firstEvent.utm_source || null,
+        utm_medium: firstEvent.utm_medium || null,
+        utm_campaign: firstEvent.utm_campaign || null,
+        utm_term: firstEvent.utm_term || null,
+        utm_content: firstEvent.utm_content || null,
+        gclid: firstEvent.gclid || null,
+        fbclid: firstEvent.fbclid || null
+      };
+      
+      // Update web_visitor with enrichment data
+      await supabase.updateWebVisitorEnrichment(webVisitorId, enrichmentData).catch(err => {
+        console.warn('⚠️ Failed to enrich web_visitor:', err);
+      });
+      
       // If we have email hashes, store them for later de-anonymization
       if (email && (emailHashes.sha256 || emailHashes.sha1 || emailHashes.md5)) {
         const emailDomain = email.split('@')[1];
