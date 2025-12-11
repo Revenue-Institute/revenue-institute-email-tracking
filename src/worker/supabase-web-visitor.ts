@@ -229,7 +229,8 @@ export class SupabaseClient {
   async getOrCreateSession(
     sessionIdString: string,
     webVisitorId?: string | null,
-    leadId?: string | null
+    leadId?: string | null,
+    enrichmentData?: any
   ): Promise<string> {
     try {
       // Validate: must have exactly one of webVisitorId or leadId
@@ -244,7 +245,8 @@ export class SupabaseClient {
       const sessionData: any = {
         start_time: new Date().toISOString(),
         web_visitor_id: webVisitorId || null,
-        lead_id: leadId || null
+        lead_id: leadId || null,
+        ...enrichmentData
       };
 
       const newSession = await this.request('POST', '/session', sessionData);

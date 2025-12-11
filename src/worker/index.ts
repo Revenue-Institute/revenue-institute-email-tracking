@@ -1481,10 +1481,22 @@ async function storeEvents(enrichedEvents: any[], env: Env, ctx?: ExecutionConte
     // Create session (belongs to either web_visitor or lead)
     let sessionId: string;
     try {
+      // Prepare session enrichment data from first event
+      const sessionEnrichment = {
+        first_page: firstEvent.url,
+        country: firstEvent.country || null,
+        city: firstEvent.city || null,
+        region: firstEvent.region || null,
+        device: firstEvent.device_type || null,
+        browser: firstEvent.data?.userAgent?.split(' ')[0] || null,
+        operating_system: firstEvent.data?.platform || null
+      };
+      
       sessionId = await supabase.getOrCreateSession(
         firstEvent._originalSessionId,
         isIdentified ? null : webVisitorId,
-        isIdentified ? leadId : null
+        isIdentified ? leadId : null,
+        sessionEnrichment
       );
       console.log(`✅ Session created: ${sessionId}`);
     } catch (error: any) {
