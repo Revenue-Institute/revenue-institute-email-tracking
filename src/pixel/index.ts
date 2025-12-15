@@ -282,6 +282,9 @@ class OutboundIntentTracker {
   private trackPageview(): void {
     const urlParams = new URLSearchParams(window.location.search);
     
+    // Extract tracking_id from URL parameter 'i' (for email click tracking)
+    const trackingId = urlParams.get(this.config.identityParam!) || null;
+    
     // Extract all UTM parameters
     const utmParams: Record<string, string> = {};
     ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 
@@ -317,6 +320,9 @@ class OutboundIntentTracker {
       referrer: document.referrer,
       referrerDomain: document.referrer ? new URL(document.referrer).hostname : null,
       defaultChannelSource: defaultChannel,
+      
+      // Email tracking (CRITICAL: Pass tracking_id to worker)
+      tracking_id: trackingId,
       
       // UTM & Campaign tracking (all parameters)
       ...utmParams,
@@ -400,6 +406,10 @@ class OutboundIntentTracker {
     const element = target.closest('a') || target.closest('button') || target;
     const isLinkOrButton = tagName === 'a' || tagName === 'button' || target.closest('a') || target.closest('button');
     
+    // Extract tracking_id from URL (if present)
+    const urlParams = new URLSearchParams(window.location.search);
+    const trackingId = urlParams.get(this.config.identityParam!) || null;
+    
     this.trackEvent('click', {
       elementType: element.tagName.toLowerCase(),
       elementId: element.id || null,
@@ -413,7 +423,9 @@ class OutboundIntentTracker {
       // Additional context
       targetTag: tagName,
       targetId: target.id || null,
-      targetClass: target.className || null
+      targetClass: target.className || null,
+      // Email tracking
+      tracking_id: trackingId
     });
   }
 
